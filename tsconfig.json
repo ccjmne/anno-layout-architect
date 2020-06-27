@@ -1,0 +1,29 @@
+{
+  "compileOnSave": true,
+  "compilerOptions": {
+    "incremental": true,
+    "baseUrl": "./",
+    "outDir": "./dist/out-tsc",
+    "sourceMap": true,
+    "declaration": false,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "resolveJsonModule": true,
+    "target": "ES2018",
+    "typeRoots": [
+      "src/**/*.d.ts",
+      "node_modules/@types",
+      "node_modules/three/src/**/*.d.ts",
+      "node_modules/three/examples/**/*.d.ts"
+    ],
+    "lib": [
+      "ES2018",
+      "DOM"
+    ]
+  }
+}
