@@ -11,7 +11,7 @@ import { TYPE_FARM } from 'src/designer-engine/building-type.class';
 import { Building } from 'src/designer-engine/building.class';
 import { Grid, Coordinates } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
-import { snapTransition, snapNamedTransition, slowTransition } from 'src/utils/transitions';
+import { snapTransition, opacityTransition, slowTransition } from 'src/utils/transitions';
 
 class DesignerGrid extends HTMLElement {
 
@@ -115,21 +115,21 @@ class DesignerGrid extends HTMLElement {
   private hover(at: Coordinates): void {
     if (at) {
       const side = this.computeTileSide();
-      snapNamedTransition(
-        'opacity',
+      opacityTransition(
+        0.3,
         this.highlights.col.attr('width', side).attr('height', this.grid.height * side).attr('x', at.col * side),
-      ).attr('opacity', 0.3);
+      );
 
-      snapNamedTransition(
-        'opacity',
+      opacityTransition(
+        0.3,
         this.highlights.row.attr('height', side).attr('width', this.grid.width * side).attr('y', at.row * side),
-      ).attr('opacity', 0.3);
+      );
 
-      const building = this.grid.buildingAt(at);
-      this.updateOutline(building);
+      this.updateOutline(this.grid.buildingAt(at));
     } else {
-      snapNamedTransition('opacity', this.highlights.col).attr('opacity', 0);
-      snapNamedTransition('opacity', this.highlights.row).attr('opacity', 0);
+      opacityTransition(0, this.highlights.col);
+      opacityTransition(0, this.highlights.row);
+      this.updateOutline(null);
     }
   }
 
@@ -144,8 +144,8 @@ class DesignerGrid extends HTMLElement {
         this.redrawBuildings();
       }
     } else {
-      snapNamedTransition('opacity', this.highlights.col).attr('opacity', 0);
-      snapNamedTransition('opacity', this.highlights.row).attr('opacity', 0);
+      opacityTransition(0, this.highlights.col);
+      opacityTransition(0, this.highlights.row);
     }
   }
 
@@ -163,12 +163,12 @@ class DesignerGrid extends HTMLElement {
 
   private updateOutline(building: Building | null): void {
     if (!building) {
-      snapNamedTransition('opacity', this.outline).attr('opacity', 0);
+      opacityTransition(0, this.outline);
       return;
     }
 
     const tileSide = this.computeTileSide();
-    snapNamedTransition('opacity', this.outline.attr('mode', this.mode)).attr('opacity', 1);
+    opacityTransition(1, this.outline.attr('mode', this.mode));
     snapTransition(this.outline)
       .attr('x', building.region.nw.col * tileSide)
       .attr('y', building.region.nw.row * tileSide)
