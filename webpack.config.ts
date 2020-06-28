@@ -39,7 +39,7 @@ export default (_env: string, { mode, analyze }: { mode?: 'production' | 'develo
   },
   resolve: {
     extensions: ['.js', '.ts'],
-    modules: [src, 'node_modules'],
+    alias: { src },
   },
   module: {
     rules: [{

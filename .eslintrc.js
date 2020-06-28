@@ -1,3 +1,5 @@
+const { resolve } = require('path');
+
 module.exports = {
   parser: '@typescript-eslint/parser',
   plugins: ['@typescript-eslint'],
@@ -9,6 +11,7 @@ module.exports = {
         config: {
           resolve: {
             extensions: ['.js', '.ts'],
+            alias: { src: resolve(__dirname, 'src') },
           },
         },
       },
