@@ -1,0 +1,32 @@
+:host {
+  display: inline-block;
+  line-height: 0;
+}
+
+:host,
+svg {
+  width: 100%;
+  height: 100%;
+}
+
+svg {
+  .axis {
+    &.cols,
+    &.rows {
+      color: $bg-dark;
+    }
+
+    &.bottom,
+    &.left,
+    &.right,
+    &.top {
+      path {
+        display: none;
+      }
+    }
+  }
+
+  .highlight {
+    fill: $bg-dark;
+  }
+}
