@@ -38,6 +38,7 @@ export default (_env: string, { mode, analyze }: { mode?: 'production' | 'develo
     usedExports: true,
   },
   resolve: {
+    extensions: ['.js', '.ts'],
     modules: [src, 'node_modules'],
   },
   module: {
