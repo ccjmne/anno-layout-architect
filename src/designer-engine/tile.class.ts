@@ -1,8 +1,8 @@
 import { Building } from './building.class';
 
 export class Tile {
-  private _building: Building | null;
 
+  private _building: Building | null;
   public get building() {
     return this._building;
   }
@@ -23,4 +23,5 @@ export class Tile {
 
     this._building = building;
   }
+
 }

@@ -1,5 +1,6 @@
 export class Coordinates {
-  row!: number;
 
+  row!: number;
   col!: number;
+
 }
