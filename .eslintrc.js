@@ -19,6 +19,7 @@ module.exports = {
   },
   rules: {
     'arrow-parens': ['error', 'as-needed'],
+    'class-methods-use-this': ['error', { exceptMethods: ['connectedCallback', 'disconnectedCallback'] }],
     'global-require': ['warn'],
     'import/extensions': [
       'warn',
@@ -26,6 +27,11 @@ module.exports = {
       { js: 'never', jsx: 'never', ts: 'never', tsx: 'never' },
     ],
     'import/no-extraneous-dependencies': ['off', { devDependencies: ['webpack.config.ts'] }],
+    'import/order': ['error', {
+      'groups': ['builtin', 'external', 'internal', 'unknown', 'parent', 'sibling', 'index', 'object'],
+      'newlines-between': 'always-and-inside-groups',
+      'alphabetize': { order: 'asc' },
+    }],
     'import/prefer-default-export': 'off',
     'lines-between-class-members': ['warn', 'always', { exceptAfterSingleLine: true }],
     'max-len': ['error', 140, { ignoreTrailingComments: true }],

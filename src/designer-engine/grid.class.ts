@@ -1,8 +1,8 @@
 import { color } from 'd3-color';
 
-import { Tile } from './tile.class';
-import { Building, BUILDING_ROAD } from './building.class';
 import { TYPE_ROAD } from './building-type.class';
+import { Building, BUILDING_ROAD } from './building.class';
+import { Tile } from './tile.class';
 
 enum ORIENTATION {
   LONGITUDE = -1, // within a row
