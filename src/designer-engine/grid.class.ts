@@ -2,8 +2,6 @@ import { color } from 'd3-color';
 
 import { Tile } from './tile.class';
 import { Building, BUILDING_ROAD } from './building.class';
-import { Coordinates } from './coordinates.class';
-import { Region } from './region.class';
 import { TYPE_ROAD } from './building-type.class';
 
 enum ORIENTATION {
@@ -12,6 +10,9 @@ enum ORIENTATION {
 }
 
 type LocatedTile = { tile: Tile, at: Coordinates };
+
+export type Coordinates = { row: number; col: number; }
+export type Region = { nw: Coordinates; se: Coordinates; }
 
 export class Grid {
 

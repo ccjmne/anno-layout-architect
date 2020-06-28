@@ -1,6 +1,5 @@
 import { Tile } from './tile.class';
-import { Grid } from './grid.class';
-import { Region } from './region.class';
+import { Grid, Region } from './grid.class';
 import { BuildingType, TYPE_ROAD } from './building-type.class';
 
 let SEQ = 0;

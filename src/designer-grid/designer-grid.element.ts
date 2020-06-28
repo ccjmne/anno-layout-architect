@@ -2,8 +2,7 @@ import { axisTop, axisBottom, axisLeft, axisRight } from 'd3-axis';
 import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection } from 'd3-selection';
 
-import { Grid } from '../designer-engine/grid.class';
-import { Coordinates } from '../designer-engine/coordinates.class';
+import { Grid, Coordinates } from '../designer-engine/grid.class';
 import { Building } from '../designer-engine/building.class';
 import { TYPE_FARM } from '../designer-engine/building-type.class';
 
