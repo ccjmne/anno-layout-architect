@@ -1,21 +1,25 @@
+import { color } from 'd3-color';
+
 import { Tile } from './tile.class';
 import { Building, BUILDING_ROAD } from './building.class';
 import { Coordinates } from './coordinates.class';
 import { Region } from './region.class';
+import { TYPE_ROAD } from './building-type.class';
 
 enum ORIENTATION {
   LONGITUDE = -1,
   LATITUDE = 1,
 }
 
+type LocatedTile = { tile: Tile, at: Coordinates };
+
 export class Grid {
-  tiles!: Tile[][];
 
-  readonly buildings: Set<Building> = new Set();
+  private tiles!: Tile[][];
+  readonly buildings: Building[] = [];
 
-  width!: number;
-
-  height!: number;
+  public readonly width!: number; // TODO: only getter should be public
+  public readonly height!: number; // TODO: only getter should be public
 
   constructor(txt: string = `
     ............
@@ -33,14 +37,14 @@ export class Grid {
       .split(/\n/)
       .map(row => row.trim())
       .filter(row => row.length > 0)
-      .map(row => row.split(/(?<=.)/).map(char => new Tile(char !== '.' && new Building(char))));
+      .map(row => row.split(/(?<=.)/).map(char => new Tile(char !== '.' && new Building({ name: char, colour: color('grey') }))));
     this.width = this.tiles[0].length;
     this.height = this.tiles.length;
   }
 
   public print(): void {
     console.log({ width: this.width, height: this.height });
-    console.log(this.tiles.map(row => row.map(t => (t.building ? t.building.name : '.').padEnd(3)).join('')).join('\n'));
+    console.log(this.tiles.map(row => row.map(t => (t.building ? t.building.type.name : '.').padEnd(3)).join('')).join('\n'));
   }
 
   public isFree(region: Region): boolean {
@@ -49,17 +53,13 @@ export class Grid {
 
   public place(building: Building, region: Region): void {
     if (this.isFree(region)) {
-      building.placeOn(this.tilesIn(Grid.normaliseCoordinates(region)));
-      this.buildings.add(building);
+      building.placeOn(region, this.tilesIn(Grid.normaliseCoordinates(region)));
+      this.buildings.push(building);
     }
   }
 
-  public destroy(building: Building): void {
-    building.removeFrom(this);
-  }
-
   // Returns list of tiles w/ shortest path prioritising a certain ORIENTATION, empty list if impossible
-  public planRoad(from: Coordinates, to: Coordinates, directionPreference: ORIENTATION = ORIENTATION.LATITUDE): Tile[] {
+  public planRoad(from: Coordinates, to: Coordinates, directionPreference: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
     type T = { tile: Tile, at: Coordinates, beeline: number, prev?: T, dir?: ORIENTATION }; // `beeline` is distance from destination, as the crow flies
 
     const tiles: T[][] = this.tiles
@@ -90,13 +90,13 @@ export class Grid {
     } while (nextShortest.length > 0 && cur.beeline > 0);
 
     if (cur.beeline === 0) {
-      const res: Tile[] = [];
+      const res: LocatedTile[] = [];
       while (cur !== origin) {
-        res.push(cur.tile);
+        res.push(cur);
         cur = cur.prev;
       }
 
-      return res.concat(cur.tile);
+      return res.concat(cur);
     }
 
     return [];
@@ -105,11 +105,15 @@ export class Grid {
   public placeRoad(from: Coordinates, to: Coordinates): void {
     const a = this.planRoad(from, to, ORIENTATION.LATITUDE);
     const b = this.planRoad(from, to, ORIENTATION.LONGITUDE);
-    (b.length < a.length ? b : a).forEach(t => {
-      const road = new Building('s', BUILDING_ROAD);
-      road.placeOn([t]);
-      this.buildings.add(road);
+    (b.length < a.length ? b : a).filter(({ tile: { building } }) => !building).forEach(({ tile, at }) => {
+      const road = new Building(TYPE_ROAD, BUILDING_ROAD);
+      road.placeOn({ nw: at, se: at }, [tile]);
+      this.buildings.push(road);
     });
+  }
+
+  public destroy(building: Building): void {
+    building.removeFrom(this);
   }
 
   public buildingAt({ row, col }: Coordinates): Building | null {
@@ -129,6 +133,7 @@ export class Grid {
 
   // true if free OR road
   private static isRoadable(tile: Tile): boolean {
-    return !tile.building || (tile.building.parentBuilding === BUILDING_ROAD);
+    return !tile.building || (tile.building.parent === BUILDING_ROAD);
   }
+
 }

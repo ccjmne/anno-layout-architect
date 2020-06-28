@@ -1,5 +1,6 @@
 :host {
-  display: inline-block;
+  display: grid;
+  grid-template: 'buttons' auto 'grid' 1fr;
   line-height: 0;
 }
 
@@ -28,5 +29,29 @@ svg {
 
   .highlight {
     fill: $bg-dark;
+  }
+
+  .buildings {
+    rect {
+      transition: fill 100ms ease-out;
+      opacity: .8;
+    }
+  }
+
+  rect.outline {
+    stroke-width: 2px;
+    fill: none;
+
+    &[mode=build] {
+      stroke: teal;
+    }
+
+    &[mode=destroy] {
+      stroke: crimson;
+    }
+
+    &[mode=inspect] {
+      stroke: $font-colour;
+    }
   }
 }

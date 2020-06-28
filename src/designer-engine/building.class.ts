@@ -1,25 +1,33 @@
 import { Tile } from './tile.class';
 import { Grid } from './grid.class';
+import { Region } from './region.class';
+import { BuildingType, TYPE_ROAD } from './building-type.class';
+
+let SEQ = 0;
 
 export class Building {
-  public name!: string;
 
-  private tiles: Array<Tile> = [];
+  public readonly id: number;
+  public type!: BuildingType;
+  public region: Region;
 
-  public parentBuilding?: Building;
-
+  public parent?: Building;
   public children: Array<Building> = [];
 
-  constructor(name: string, parentBuilding?: Building) {
-    this.name = name;
+  private tiles: Array<Tile> = []; // TODO: should be dropped?
+
+  constructor(type: BuildingType, parentBuilding?: Building) {
+    this.id = SEQ++; // eslint-disable-line no-plusplus
+    this.type = type;
     this.children = [];
     if (parentBuilding) {
-      this.parentBuilding = parentBuilding;
+      this.parent = parentBuilding;
       parentBuilding.children.push(this);
     }
   }
 
-  public placeOn(tiles: Tile[]): void {
+  public placeOn(region: Region, tiles: Tile[]): void {
+    this.region = region;
     tiles.forEach(t => t.setBuilding(this));
     this.tiles.push(...tiles);
   }
@@ -29,12 +37,13 @@ export class Building {
     this.tiles.splice(0, this.tiles.length);
     this.children.forEach(c => c.removeFrom(grid));
     this.children.splice(0, this.children.length);
-    grid.buildings.delete(this);
+    grid.buildings.splice(grid.buildings.indexOf(this), 1);
   }
 
   public getTiles(): Tile[] {
     return this.tiles;
   }
+
 }
 
-export const BUILDING_ROAD = new Building('Road');
+export const BUILDING_ROAD = new Building(TYPE_ROAD);
