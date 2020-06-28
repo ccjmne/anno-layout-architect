@@ -5,8 +5,8 @@ import { Building, BUILDING_ROAD } from './building.class';
 import { TYPE_ROAD } from './building-type.class';
 
 enum ORIENTATION {
-  LONGITUDE = -1,
-  LATITUDE = 1,
+  LONGITUDE = -1, // within a row
+  LATITUDE = 1, // within a column
 }
 
 type LocatedTile = { tile: Tile, at: Coordinates };
@@ -59,14 +59,14 @@ export class Grid {
     }
   }
 
-  // Returns list of tiles w/ shortest path prioritising a certain ORIENTATION, empty list if impossible
-  public planRoad(from: Coordinates, to: Coordinates, directionPreference: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
+  // Returns list of tiles w/ shortest path prioritising travel along a certain ORIENTATION, empty list if impossible
+  public planRoad(from: Coordinates, to: Coordinates, orientation: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
     type T = { tile: Tile, at: Coordinates, beeline: number, prev?: T, dir?: ORIENTATION }; // `beeline` is distance from destination, as the crow flies
 
     const tiles: T[][] = this.tiles
       .map((r, row) => r.map((tile, col) => ({ tile, at: { row, col }, beeline: Math.abs(to.row - row) + Math.abs(to.col - col) })));
 
-    const self = this;
+    const { height, width } = this;
     function getNeighbours(t: T): T[] {
       return [
         { row: t.at.row, col: t.at.col - 1, dir: ORIENTATION.LONGITUDE },
@@ -74,7 +74,7 @@ export class Grid {
         { row: t.at.row - 1, col: t.at.col, dir: ORIENTATION.LATITUDE },
         { row: t.at.row + 1, col: t.at.col, dir: ORIENTATION.LATITUDE },
       ]
-        .filter(v => v.row >= 0 && v.row < self.height && v.col >= 0 && v.col < self.width)
+        .filter(v => v.row >= 0 && v.row < height && v.col >= 0 && v.col < width)
         .map<[{ dir: ORIENTATION }, T]>(v => [v, tiles[v.row][v.col]])
         .filter(([_, n]) => Grid.isRoadable(n.tile))
         .filter(([_, n]) => !n.prev)
@@ -87,7 +87,7 @@ export class Grid {
     do {
       cur = nextShortest.pop();
       nextShortest.push(...getNeighbours(cur));
-      nextShortest.sort(({ beeline: d1, dir: dir1 }, { beeline: d2, dir: dir2 }) => d2 - d1 || (dir1 - dir2) * directionPreference); // LONGITUDE-first
+      nextShortest.sort(({ beeline: d1, dir: dir1 }, { beeline: d2, dir: dir2 }) => d2 - d1 || (dir1 - dir2) * orientation);
     } while (nextShortest.length > 0 && cur.beeline > 0);
 
     if (cur.beeline === 0) {
@@ -103,6 +103,7 @@ export class Grid {
     return [];
   }
 
+  // Distinction between 'from' and 'to' matters, for the algorithm will prefer LATITUDE-first travelling
   public placeRoad(from: Coordinates, to: Coordinates): void {
     const a = this.planRoad(from, to, ORIENTATION.LATITUDE);
     const b = this.planRoad(from, to, ORIENTATION.LONGITUDE);
@@ -127,12 +128,12 @@ export class Grid {
       .map((row => row.filter((_, c) => c >= nw.col && c <= se.col))));
   }
 
-  // in case NortWest and SouthEast coordinates are supplied wonkily.
+  // In case North-West and South-East coordinates are supplied wonkily
   private static normaliseCoordinates({ nw: { row: r1, col: c1 }, se: { row: r2, col: c2 } }: Region): Region {
     return { nw: { row: Math.min(r1, r2), col: Math.min(c1, c2) }, se: { row: Math.max(r1, r2), col: Math.max(c1, c2) } };
   }
 
-  // true if free OR road
+  // Is `true` if the tile is building-free OR already is a road
   private static isRoadable(tile: Tile): boolean {
     return !tile.building || (tile.building.parent === BUILDING_ROAD);
   }
