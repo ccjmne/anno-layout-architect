@@ -2,11 +2,16 @@ import { axisTop, axisBottom, axisLeft, axisRight } from 'd3-axis';
 import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection } from 'd3-selection';
 
-import { Grid, Coordinates } from '../designer-engine/grid.class';
-import { Building } from '../designer-engine/building.class';
-import { TYPE_FARM } from '../designer-engine/building-type.class';
+import { fromEvent } from 'rxjs/internal/observable/fromEvent';
+import { debounceTime } from 'rxjs/internal/operators/debounceTime';
+import { distinctUntilChanged } from 'rxjs/internal/operators/distinctUntilChanged';
+import { map } from 'rxjs/internal/operators/map';
 
-import 'd3-transition';
+import { TYPE_FARM } from 'src/designer-engine/building-type.class';
+import { Building } from 'src/designer-engine/building.class';
+import { Grid, Coordinates } from 'src/designer-engine/grid.class';
+import { untilDisconnected } from 'src/utils/customelement-disconnected';
+import { snapTransition, snapNamedTransition, slowTransition } from 'src/utils/transitions';
 
 class DesignerGrid extends HTMLElement {
 
@@ -57,6 +62,7 @@ class DesignerGrid extends HTMLElement {
     style.type = 'text/css';
     style.append(document.createTextNode(require('./designer-grid.inline.scss')));
     this.shadowRoot.innerHTML += style.outerHTML + require('./designer-grid.template.html');
+
     this.container = this.shadowRoot.querySelector('main');
     this.svg = select(this.shadowRoot.querySelector('svg'));
     this.btnBuild = this.shadowRoot.querySelector('button#build');
@@ -68,10 +74,6 @@ class DesignerGrid extends HTMLElement {
     this.shadowRoot.querySelector('button#dump').addEventListener('click', () => {
       console.log(this.grid.buildings);
     });
-
-    window.addEventListener('resize', () => this.redraw());
-    this.shadowRoot.addEventListener('mousemove', this.hover.bind(this));
-    this.shadowRoot.addEventListener('click', this.handleClick.bind(this));
 
     this.root = this.svg.append('g').attr('class', 'root').attr('transform', `translate(${this.margins.right}, ${this.margins.top})`);
     this.highlights = {
@@ -90,40 +92,50 @@ class DesignerGrid extends HTMLElement {
 
     this.buildings = (this.root.append('g').attr('class', 'buildings') as Selection<SVGGElement, Building, null, undefined>);
     this.outline = this.root.append('rect').attr('class', 'outline'); // TODO maybe should be path for non-rect geometries
+
     this.redraw();
+
+    fromEvent(window, 'resize').pipe(
+      debounceTime(50),
+      untilDisconnected(this),
+    ).subscribe(() => this.redraw());
+    fromEvent<MouseEvent>(this.shadowRoot, 'mousemove').pipe(
+      map(e => this.coords(e)),
+      distinctUntilChanged((a, b) => (a === null ? b === null : b !== null && a.row === b.row && a.col === b.col)),
+      untilDisconnected(this),
+    ).subscribe(at => this.hover(at));
+    fromEvent<MouseEvent>(this.shadowRoot, 'click').pipe(
+      map(e => this.coords(e)),
+      untilDisconnected(this),
+    ).subscribe(at => this.handleClick(at));
   }
 
-  public disconnectedCallback(): void {
-    // remove event listeners
-  }
+  public disconnectedCallback(): void { }
 
-  private hover(e: MouseEvent): void {
-    const coords = this.coordinatesUnderMouse(e);
-    if (coords) {
+  private hover(at: Coordinates): void {
+    if (at) {
       const side = this.computeTileSide();
-      this.highlights.col.attr('width', side).attr('height', this.grid.height * side)
-        .attr('x', coords.col * side)
-        .transition('opacity')
-        .duration(100)
-        .attr('opacity', 0.3);
-      this.highlights.row.attr('height', side).attr('width', this.grid.width * side)
-        .attr('y', coords.row * side)
-        .transition('opacity')
-        .duration(100)
-        .attr('opacity', 0.3);
-      const building = this.grid.buildingAt(coords);
+      snapNamedTransition(
+        'opacity',
+        this.highlights.col.attr('width', side).attr('height', this.grid.height * side).attr('x', at.col * side),
+      ).attr('opacity', 0.3);
 
+      snapNamedTransition(
+        'opacity',
+        this.highlights.row.attr('height', side).attr('width', this.grid.width * side).attr('y', at.row * side),
+      ).attr('opacity', 0.3);
+
+      const building = this.grid.buildingAt(at);
       this.updateOutline(building);
     } else {
-      this.highlights.col.transition('opacity').duration(100).attr('opacity', 0);
-      this.highlights.row.transition('opacity').duration(100).attr('opacity', 0);
+      snapNamedTransition('opacity', this.highlights.col).attr('opacity', 0);
+      snapNamedTransition('opacity', this.highlights.row).attr('opacity', 0);
     }
   }
 
-  private handleClick(e: MouseEvent): void {
-    const coords = this.coordinatesUnderMouse(e);
-    if (coords) {
-      const building = this.grid.buildingAt(coords);
+  private handleClick(at: Coordinates | null): void {
+    if (at) {
+      const building = this.grid.buildingAt(at);
       if (this.mode === 'inspect' && !!building) {
         this.inspect(building);
       }
@@ -132,12 +144,12 @@ class DesignerGrid extends HTMLElement {
         this.redrawBuildings();
       }
     } else {
-      this.highlights.col.transition('opacity').duration(100).attr('opacity', 0);
-      this.highlights.row.transition('opacity').duration(100).attr('opacity', 0);
+      snapNamedTransition('opacity', this.highlights.col).attr('opacity', 0);
+      snapNamedTransition('opacity', this.highlights.row).attr('opacity', 0);
     }
   }
 
-  private coordinatesUnderMouse({ offsetX: x, offsetY: y }: MouseEvent): Coordinates | null {
+  private coords({ offsetX: x, offsetY: y }: MouseEvent): Coordinates | null {
     // TODO: use d3-bisect maybe?
     const side = this.computeTileSide();
     if ((x > this.margins.left && x < this.margins.left + this.grid.width * side)
@@ -151,12 +163,13 @@ class DesignerGrid extends HTMLElement {
 
   private updateOutline(building: Building | null): void {
     if (!building) {
-      this.outline.transition('opacity').duration(100).attr('opacity', 0);
+      snapNamedTransition('opacity', this.outline).attr('opacity', 0);
       return;
     }
+
     const tileSide = this.computeTileSide();
-    this.outline.attr('mode', this.mode).transition('opacity').duration(100).attr('opacity', 1);
-    this.outline.transition().duration(50)
+    snapNamedTransition('opacity', this.outline.attr('mode', this.mode)).attr('opacity', 1);
+    snapTransition(this.outline)
       .attr('x', building.region.nw.col * tileSide)
       .attr('y', building.region.nw.row * tileSide)
       .attr('width', (building.region.se.col - building.region.nw.col + 1) * tileSide)
@@ -182,38 +195,38 @@ class DesignerGrid extends HTMLElement {
 
   private redraw(): void {
     const tileSide = this.computeTileSide();
-    this.root.transition()
+    slowTransition(this.root)
       .attr('transform', `translate(${this.margins.left}, ${this.margins.top})`);
 
-    this.axes.top.transition()
+    slowTransition(this.axes.top)
       .call(axisTop(scaleBand()
         .domain(Array.from({ length: this.grid.width }, (_, i) => String(i)))
         .range([0, this.grid.width * tileSide])));
 
-    this.axes.bottom.transition()
+    slowTransition(this.axes.bottom)
       .attr('transform', `translate(0, ${this.grid.height * tileSide})`)
       .call(axisBottom(scaleBand()
         .domain(Array.from({ length: this.grid.width }, (_, i) => String(i)))
         .range([0, this.grid.width * tileSide])));
 
-    this.axes.left.transition()
+    slowTransition(this.axes.left)
       .call(axisLeft(scaleBand()
         .domain(Array.from({ length: this.grid.height }, (_, i) => String(i)))
         .range([0, this.grid.height * tileSide])));
 
-    this.axes.right.transition()
+    slowTransition(this.axes.right)
       .attr('transform', `translate(${this.grid.width * tileSide}, 0)`)
       .call(axisRight(scaleBand()
         .domain(Array.from({ length: this.grid.height }, (_, i) => String(i)))
         .range([0, this.grid.height * tileSide])));
 
-    this.axes.rows.transition().call(
+    slowTransition(this.axes.rows).call(
       axisRight(
         scaleLinear().domain([0, this.grid.height]).range([0, this.grid.height * tileSide]),
       ).tickFormat(() => '').tickSize(this.grid.width * tileSide),
     );
 
-    this.axes.cols.transition().call(
+    slowTransition(this.axes.cols).call(
       axisBottom(
         scaleLinear().domain([0, this.grid.width]).range([0, this.grid.width * tileSide]),
       ).tickFormat(() => '').tickSize(this.grid.height * tileSide),
@@ -224,26 +237,25 @@ class DesignerGrid extends HTMLElement {
 
   private redrawBuildings(): void {
     const tileSide = this.computeTileSide();
-    this.buildings
-      .selectAll('rect')
-      .data(this.grid.buildings, (d: Building) => String(d.id))
-      .join('rect')
-      .attr('fill', d => d.type.colour.hex())
-      .transition()
-      .attr('x', d => d.region.nw.col * tileSide)
+    slowTransition(
+      this.buildings.selectAll<SVGRectElement, Building>('rect')
+        .data(this.grid.buildings, d => String(d.id))
+        .join('rect')
+        .attr('fill', d => d.type.colour.hex()),
+    ).attr('x', d => d.region.nw.col * tileSide)
       .attr('y', d => d.region.nw.row * tileSide)
       .attr('width', d => (d.region.se.col - d.region.nw.col + 1) * tileSide)
       .attr('height', d => (d.region.se.row - d.region.nw.row + 1) * tileSide);
 
-    this.buildings
-      .selectAll('text')
-      .data(this.grid.buildings, (d: Building) => String(d.id))
-      .join('text')
-      .style('text-anchor', 'middle')
-      .style('dominant-baseline', 'middle')
-      .text(d => d.type.name)
-      .transition()
-      .attr('x', d => ((d.region.nw.col + d.region.se.col + 1) / 2) * tileSide)
+    slowTransition(
+      this.buildings
+        .selectAll<SVGTextElement, Building>('text')
+        .data(this.grid.buildings, d => String(d.id))
+        .join('text')
+        .style('text-anchor', 'middle')
+        .style('dominant-baseline', 'middle')
+        .text(d => d.type.name),
+    ).attr('x', d => ((d.region.nw.col + d.region.se.col + 1) / 2) * tileSide)
       .attr('y', d => ((d.region.nw.row + d.region.se.row + 1) / 2) * tileSide);
   }
 
