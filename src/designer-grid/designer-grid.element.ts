@@ -2,18 +2,26 @@ import { axisTop, axisBottom, axisLeft, axisRight } from 'd3-axis';
 import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection } from 'd3-selection';
 
+import { ReplaySubject } from 'rxjs/internal/ReplaySubject';
+import { combineLatest } from 'rxjs/internal/observable/combineLatest';
 import { fromEvent } from 'rxjs/internal/observable/fromEvent';
 import { merge } from 'rxjs/internal/observable/merge';
 import { debounceTime } from 'rxjs/internal/operators/debounceTime';
 import { distinctUntilChanged } from 'rxjs/internal/operators/distinctUntilChanged';
+import { filter } from 'rxjs/internal/operators/filter';
 import { map } from 'rxjs/internal/operators/map';
+
+import { startWith } from 'rxjs/internal/operators/startWith';
+import { tap } from 'rxjs/internal/operators/tap';
 
 import { TYPE_FARM, BuildingType, TYPE_ROAD } from 'src/designer-engine/building-type.class';
 import { Building } from 'src/designer-engine/building.class';
-import { Grid, Coordinates, Region, compareCoordinates, compareRegions } from 'src/designer-engine/grid.class';
+import { Grid, TileCoords, Region, compareCoordinates, compareRegions } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
-import { floor } from 'src/utils/maths';
+import { mod } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition } from 'src/utils/transitions';
+
+type MouseCoords = { x: number, y: number };
 
 class DesignerGrid extends HTMLElement {
 
@@ -46,12 +54,14 @@ class DesignerGrid extends HTMLElement {
   }
 
   // Private properties
-  private margins = { top: 20, right: 20, bottom: 20, left: 20 };
+  private margins = { top: 50, right: 50, bottom: 50, left: 50 };
 
   // Engine model
-  private mode: 'build' | 'destroy' | 'inspect' = 'build';
-  private buildType: BuildingType = TYPE_ROAD;
   private grid: Grid = new Grid();
+  private mode: 'build' | 'destroy' | 'inspect' = 'build';
+  private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
+
+  private mouseCoords$: ReplaySubject<MouseCoords> = new ReplaySubject(1);
 
   constructor() {
     super();
@@ -73,8 +83,8 @@ class DesignerGrid extends HTMLElement {
     this.btnRoad = this.shadowRoot.querySelector('button#road');
     this.btnDestroy = this.shadowRoot.querySelector('button#destroy');
     this.btnInspect = this.shadowRoot.querySelector('button#inspect');
-    this.btnFarm.addEventListener('click', () => (this.mode = 'build', this.buildType = TYPE_FARM));
-    this.btnRoad.addEventListener('click', () => (this.mode = 'build', this.buildType = TYPE_ROAD));
+    this.btnFarm.addEventListener('click', () => (this.mode = 'build', this.build.type = TYPE_FARM));
+    this.btnRoad.addEventListener('click', () => (this.mode = 'build', this.build.type = TYPE_ROAD));
     this.btnDestroy.addEventListener('click', () => this.mode = 'destroy');
     this.btnInspect.addEventListener('click', () => this.mode = 'inspect');
     this.shadowRoot.querySelector('button#dump').addEventListener('click', () => {
@@ -107,34 +117,44 @@ class DesignerGrid extends HTMLElement {
     ).subscribe(() => this.redraw());
 
     merge(
-      fromEvent<MouseEvent>(this.shadowRoot, 'mousemove'),
-      fromEvent<MouseEvent>(this.shadowRoot, 'mouseenter'),
-      fromEvent<MouseEvent>(this.shadowRoot, 'mouseleave'),
+      fromEvent<MouseEvent>(this.container, 'mousemove'),
+      fromEvent<MouseEvent>(this.container, 'mouseenter'),
+      fromEvent<MouseEvent>(this.container, 'mouseleave'),
     ).pipe(
-      map(e => this.coords(e)),
+      map(e => this.relativeMouseCoords(e)),
+      untilDisconnected(this),
+    ).subscribe(this.mouseCoords$);
+
+    this.mouseCoords$.pipe(
+      map(e => this.getTileCoords(e)),
       distinctUntilChanged(compareCoordinates),
       untilDisconnected(this),
     ).subscribe(at => this.highlightCoords(at));
 
-    merge(
-      fromEvent<MouseEvent>(this.shadowRoot, 'mousemove'),
-      fromEvent<MouseEvent>(this.shadowRoot, 'mouseenter'),
-      fromEvent<MouseEvent>(this.shadowRoot, 'mouseleave'),
-    ).pipe(
-      map(e => this.buildRegion(e)),
+    combineLatest([
+      this.mouseCoords$,
+      fromEvent<KeyboardEvent>(document, 'keypress').pipe(
+        filter(({ key }) => key === '.' || key === ','),
+        tap(() => this.build.rotate = !this.build.rotate),
+        startWith(null),
+        untilDisconnected(this),
+      ),
+    ]).pipe(
+      map(([e]) => this.getRegion(e)),
       distinctUntilChanged(compareRegions),
       untilDisconnected(this),
     ).subscribe(region => this.moveOutline(region));
 
-    fromEvent<MouseEvent>(this.shadowRoot, 'click').pipe(
-      map(e => this.coords(e)),
+    fromEvent<MouseEvent>(this.container, 'click').pipe(
+      map(e => this.relativeMouseCoords(e)),
+      map(e => this.getTileCoords(e)),
       untilDisconnected(this),
     ).subscribe(at => this.handleClick(at));
   }
 
   public disconnectedCallback(): void { }
 
-  private highlightCoords(at: Coordinates | null): void {
+  private highlightCoords(at: TileCoords | null): void {
     if (at) {
       const side = this.computeTileSide();
       opacityTransition(
@@ -152,10 +172,11 @@ class DesignerGrid extends HTMLElement {
     }
   }
 
-  private handleClick(at: Coordinates | null): void {
+  private handleClick(at: TileCoords | null): void {
     if (at) {
       const building = this.grid.buildingAt(at);
       if (this.mode === 'inspect' && !!building) {
+        console.log(at, building.region.nw);
         this.inspect(building);
       }
 
@@ -169,29 +190,26 @@ class DesignerGrid extends HTMLElement {
     }
   }
 
-  private coords({ offsetX: x, offsetY: y }: MouseEvent): Coordinates | null {
+  private getTileCoords({ x, y }: MouseCoords): TileCoords | null {
     const side = this.computeTileSide();
-    if (
-      (x > this.margins.left && x < this.margins.left + this.grid.width * side)
-      && (y > this.margins.top && y < this.margins.top + this.grid.height * side)
-    ) {
-      return { row: Math.floor((y - this.margins.top) / side), col: Math.floor((x - this.margins.left) / side) };
+    if (x > 0 && x < this.grid.width * side && y > 0 && y < this.grid.height * side) {
+      return { row: Math.floor(y / side), col: Math.floor(x / side) };
     }
 
     return null;
   }
 
-  private buildRegion(e: MouseEvent): Region | null {
+  private getRegion(e: MouseCoords): Region | null {
     if (this.mode === 'build') {
-      const tileSide = this.computeTileSide();
-      const { width: w, height: h } = this.buildType;
-      const idealNW = { x: (e.offsetX - this.margins.left) - (w / 2) * tileSide, y: (e.offsetY - this.margins.top) - (h / 2) * tileSide };
-      const closestCol = floor(idealNW.x / tileSide) + Math.ceil((idealNW.x % tileSide) / tileSide - 0.5);
-      const closestRow = floor(idealNW.y / tileSide) + Math.ceil((idealNW.y % tileSide) / tileSide - 0.5);
+      const side = this.computeTileSide();
+      const { width: w, height: h } = this.build.rotate ? { width: this.build.type.height, height: this.build.type.width } : this.build.type;
+      const idealNW = { x: e.x - (w / 2) * side, y: e.y - (h / 2) * side };
+      const closestCol = Math.floor(idealNW.x / side) + +(mod(idealNW.x, side) > side / 2);
+      const closestRow = Math.floor(idealNW.y / side) + +(mod(idealNW.y, side) > side / 2);
       return { nw: { col: closestCol, row: closestRow }, se: { col: closestCol + w - 1, row: closestRow + h - 1 } };
     }
 
-    return this.grid.buildingAt(this.coords(e)) ?.region;
+    return this.grid.buildingAt(this.getTileCoords(e)) ?.region;
   }
 
   private moveOutline(region: Region | null): void {
@@ -201,7 +219,7 @@ class DesignerGrid extends HTMLElement {
     }
 
     this.outline
-      .attr('error', this.mode === 'build' && !(this.buildType === TYPE_ROAD ? this.grid.isFreeForRoad(region) : this.grid.isFree(region)));
+      .attr('error', this.mode === 'build' && !(this.build.type === TYPE_ROAD ? this.grid.isFreeForRoad(region) : this.grid.isFree(region)));
 
     const tileSide = this.computeTileSide();
     opacityTransition(1, this.outline.attr('mode', this.mode));
@@ -290,6 +308,10 @@ class DesignerGrid extends HTMLElement {
     const rows = this.grid.height;
 
     return Math.min(Math.floor(width / cols), Math.floor(height / rows));
+  }
+
+  private relativeMouseCoords({ offsetX, offsetY }: MouseEvent): MouseCoords {
+    return ({ x: offsetX - this.margins.left, y: offsetY - this.margins.top });
   }
 
 }

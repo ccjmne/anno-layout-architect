@@ -9,12 +9,12 @@ enum ORIENTATION {
   LATITUDE = 1, // within a column
 }
 
-type LocatedTile = { tile: Tile, at: Coordinates };
+export type TileCoords = { row: number; col: number; }
+export type Region = { nw: TileCoords; se: TileCoords; }
 
-export type Coordinates = { row: number; col: number; }
-export type Region = { nw: Coordinates; se: Coordinates; }
+type LocatedTile = { tile: Tile, at: TileCoords };
 
-export function compareCoordinates(a: Coordinates | null, b: Coordinates | null): boolean {
+export function compareCoordinates(a: TileCoords | null, b: TileCoords | null): boolean {
   return (not(a) ? not(b) : exists(b) && a.row === b.row && a.col === b.col);
 }
 
@@ -72,8 +72,8 @@ export class Grid {
   }
 
   // Returns list of tiles w/ shortest path prioritising travel along a certain ORIENTATION, empty list if impossible
-  public planRoad(from: Coordinates, to: Coordinates, orientation: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
-    type T = { tile: Tile, at: Coordinates, beeline: number, prev?: T, dir?: ORIENTATION }; // `beeline` is distance from destination, as the crow flies
+  public planRoad(from: TileCoords, to: TileCoords, orientation: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
+    type T = { tile: Tile, at: TileCoords, beeline: number, prev?: T, dir?: ORIENTATION }; // `beeline` is distance from destination, as the crow flies
 
     const tiles: T[][] = this.tiles
       .map((r, row) => r.map((tile, col) => ({ tile, at: { row, col }, beeline: Math.abs(to.row - row) + Math.abs(to.col - col) })));
@@ -116,7 +116,7 @@ export class Grid {
   }
 
   // Distinction between 'from' and 'to' matters, for the algorithm will prefer LATITUDE-first travelling
-  public placeRoad(from: Coordinates, to: Coordinates): void {
+  public placeRoad(from: TileCoords, to: TileCoords): void {
     const a = this.planRoad(from, to, ORIENTATION.LATITUDE);
     const b = this.planRoad(from, to, ORIENTATION.LONGITUDE);
     (b.length < a.length ? b : a).filter(({ tile: { building } }) => !building).forEach(({ tile, at }) => {
@@ -130,7 +130,7 @@ export class Grid {
     building.removeFrom(this);
   }
 
-  public buildingAt(at: Coordinates | null): Building | null {
+  public buildingAt(at: TileCoords | null): Building | null {
     return at ? this.tiles[at.row][at.col].building : null;
   }
 
