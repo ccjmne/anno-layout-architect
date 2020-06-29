@@ -8,7 +8,7 @@ export class Building {
 
   public readonly id: number;
   public type!: BuildingType;
-  public region: Region;
+  public region: Region | null = null;
 
   public parent?: Building;
   public children: Array<Building> = [];
@@ -16,6 +16,7 @@ export class Building {
   private tiles: Array<Tile> = []; // TODO: should be dropped?
 
   constructor(type: BuildingType, parentBuilding?: Building) {
+    this.region = null;
     this.id = SEQ++; // eslint-disable-line no-plusplus
     this.type = type;
     this.children = [];

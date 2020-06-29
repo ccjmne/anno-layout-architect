@@ -42,7 +42,7 @@ module.exports = {
       ObjectExpression: { consistent: true, multiline: true },
       ObjectPattern: { consistent: true, multiline: true },
     }],
-    'padded-blocks': ['error', { blocks: 'never', switches: 'always', classes: 'always' }],
+    'padded-blocks': ['error', { blocks: 'never', switches: 'never', classes: 'always' }],
     'quotes': ['error', 'single', { avoidEscape: true, allowTemplateLiterals: true }],
     'quote-props': ['error', 'consistent-as-needed'],
     '@typescript-eslint/no-unused-vars': 'off',

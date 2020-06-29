@@ -40,18 +40,26 @@ svg {
 
   rect.outline {
     stroke-width: 2px;
-    fill: none;
+    stroke: var(--colour);
+    fill: var(--colour);
+    cursor: pointer;
+    fill-opacity: 0;
+    #{--colour}: #{$font-colour};
 
     &[mode=build] {
-      stroke: teal;
+      fill-opacity: .3;
+      #{--colour}: #{$colour-success};
     }
 
     &[mode=destroy] {
-      stroke: crimson;
+      #{--colour}: $colour-error;
     }
 
-    &[mode=inspect] {
-      stroke: $font-colour;
+    &[mode=inspect] {}
+
+    &[error=true] {
+      cursor: not-allowed;
+      #{--colour}: $colour-error;
     }
   }
 }

@@ -3,21 +3,24 @@ import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection } from 'd3-selection';
 
 import { fromEvent } from 'rxjs/internal/observable/fromEvent';
+import { merge } from 'rxjs/internal/observable/merge';
 import { debounceTime } from 'rxjs/internal/operators/debounceTime';
 import { distinctUntilChanged } from 'rxjs/internal/operators/distinctUntilChanged';
 import { map } from 'rxjs/internal/operators/map';
 
-import { TYPE_FARM } from 'src/designer-engine/building-type.class';
+import { TYPE_FARM, BuildingType, TYPE_ROAD } from 'src/designer-engine/building-type.class';
 import { Building } from 'src/designer-engine/building.class';
-import { Grid, Coordinates } from 'src/designer-engine/grid.class';
+import { Grid, Coordinates, Region, compareCoordinates, compareRegions } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
+import { floor } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition } from 'src/utils/transitions';
 
 class DesignerGrid extends HTMLElement {
 
   // HTML elements
   private container: HTMLElement;
-  private btnBuild: HTMLButtonElement;
+  private btnFarm: HTMLButtonElement;
+  private btnRoad: HTMLButtonElement;
   private btnDestroy: HTMLButtonElement;
   private btnInspect: HTMLButtonElement;
 
@@ -46,7 +49,8 @@ class DesignerGrid extends HTMLElement {
   private margins = { top: 20, right: 20, bottom: 20, left: 20 };
 
   // Engine model
-  private mode: 'build' | 'destroy' | 'inspect' = 'destroy';
+  private mode: 'build' | 'destroy' | 'inspect' = 'build';
+  private buildType: BuildingType = TYPE_ROAD;
   private grid: Grid = new Grid();
 
   constructor() {
@@ -65,10 +69,12 @@ class DesignerGrid extends HTMLElement {
 
     this.container = this.shadowRoot.querySelector('main');
     this.svg = select(this.shadowRoot.querySelector('svg'));
-    this.btnBuild = this.shadowRoot.querySelector('button#build');
+    this.btnFarm = this.shadowRoot.querySelector('button#farm');
+    this.btnRoad = this.shadowRoot.querySelector('button#road');
     this.btnDestroy = this.shadowRoot.querySelector('button#destroy');
     this.btnInspect = this.shadowRoot.querySelector('button#inspect');
-    this.btnBuild.addEventListener('click', () => this.mode = 'build');
+    this.btnFarm.addEventListener('click', () => (this.mode = 'build', this.buildType = TYPE_FARM));
+    this.btnRoad.addEventListener('click', () => (this.mode = 'build', this.buildType = TYPE_ROAD));
     this.btnDestroy.addEventListener('click', () => this.mode = 'destroy');
     this.btnInspect.addEventListener('click', () => this.mode = 'inspect');
     this.shadowRoot.querySelector('button#dump').addEventListener('click', () => {
@@ -99,11 +105,27 @@ class DesignerGrid extends HTMLElement {
       debounceTime(50),
       untilDisconnected(this),
     ).subscribe(() => this.redraw());
-    fromEvent<MouseEvent>(this.shadowRoot, 'mousemove').pipe(
+
+    merge(
+      fromEvent<MouseEvent>(this.shadowRoot, 'mousemove'),
+      fromEvent<MouseEvent>(this.shadowRoot, 'mouseenter'),
+      fromEvent<MouseEvent>(this.shadowRoot, 'mouseleave'),
+    ).pipe(
       map(e => this.coords(e)),
-      distinctUntilChanged((a, b) => (a === null ? b === null : b !== null && a.row === b.row && a.col === b.col)),
+      distinctUntilChanged(compareCoordinates),
       untilDisconnected(this),
-    ).subscribe(at => this.hover(at));
+    ).subscribe(at => this.highlightCoords(at));
+
+    merge(
+      fromEvent<MouseEvent>(this.shadowRoot, 'mousemove'),
+      fromEvent<MouseEvent>(this.shadowRoot, 'mouseenter'),
+      fromEvent<MouseEvent>(this.shadowRoot, 'mouseleave'),
+    ).pipe(
+      map(e => this.buildRegion(e)),
+      distinctUntilChanged(compareRegions),
+      untilDisconnected(this),
+    ).subscribe(region => this.moveOutline(region));
+
     fromEvent<MouseEvent>(this.shadowRoot, 'click').pipe(
       map(e => this.coords(e)),
       untilDisconnected(this),
@@ -112,7 +134,7 @@ class DesignerGrid extends HTMLElement {
 
   public disconnectedCallback(): void { }
 
-  private hover(at: Coordinates): void {
+  private highlightCoords(at: Coordinates | null): void {
     if (at) {
       const side = this.computeTileSide();
       opacityTransition(
@@ -124,12 +146,9 @@ class DesignerGrid extends HTMLElement {
         0.3,
         this.highlights.row.attr('height', side).attr('width', this.grid.width * side).attr('y', at.row * side),
       );
-
-      this.updateOutline(this.grid.buildingAt(at));
     } else {
       opacityTransition(0, this.highlights.col);
       opacityTransition(0, this.highlights.row);
-      this.updateOutline(null);
     }
   }
 
@@ -139,6 +158,7 @@ class DesignerGrid extends HTMLElement {
       if (this.mode === 'inspect' && !!building) {
         this.inspect(building);
       }
+
       if (this.mode === 'destroy' && !!building) {
         this.grid.destroy(building);
         this.redrawBuildings();
@@ -150,9 +170,9 @@ class DesignerGrid extends HTMLElement {
   }
 
   private coords({ offsetX: x, offsetY: y }: MouseEvent): Coordinates | null {
-    // TODO: use d3-bisect maybe?
     const side = this.computeTileSide();
-    if ((x > this.margins.left && x < this.margins.left + this.grid.width * side)
+    if (
+      (x > this.margins.left && x < this.margins.left + this.grid.width * side)
       && (y > this.margins.top && y < this.margins.top + this.grid.height * side)
     ) {
       return { row: Math.floor((y - this.margins.top) / side), col: Math.floor((x - this.margins.left) / side) };
@@ -161,32 +181,35 @@ class DesignerGrid extends HTMLElement {
     return null;
   }
 
-  private updateOutline(building: Building | null): void {
-    if (!building) {
+  private buildRegion(e: MouseEvent): Region | null {
+    if (this.mode === 'build') {
+      const tileSide = this.computeTileSide();
+      const { width: w, height: h } = this.buildType;
+      const idealNW = { x: (e.offsetX - this.margins.left) - (w / 2) * tileSide, y: (e.offsetY - this.margins.top) - (h / 2) * tileSide };
+      const closestCol = floor(idealNW.x / tileSide) + Math.ceil((idealNW.x % tileSide) / tileSide - 0.5);
+      const closestRow = floor(idealNW.y / tileSide) + Math.ceil((idealNW.y % tileSide) / tileSide - 0.5);
+      return { nw: { col: closestCol, row: closestRow }, se: { col: closestCol + w - 1, row: closestRow + h - 1 } };
+    }
+
+    return this.grid.buildingAt(this.coords(e)) ?.region;
+  }
+
+  private moveOutline(region: Region | null): void {
+    if (!region) {
       opacityTransition(0, this.outline);
       return;
     }
 
+    this.outline
+      .attr('error', this.mode === 'build' && !(this.buildType === TYPE_ROAD ? this.grid.isFreeForRoad(region) : this.grid.isFree(region)));
+
     const tileSide = this.computeTileSide();
     opacityTransition(1, this.outline.attr('mode', this.mode));
     snapTransition(this.outline)
-      .attr('x', building.region.nw.col * tileSide)
-      .attr('y', building.region.nw.row * tileSide)
-      .attr('width', (building.region.se.col - building.region.nw.col + 1) * tileSide)
-      .attr('height', (building.region.se.row - building.region.nw.row + 1) * tileSide);
-
-    switch (this.mode) {
-
-      case 'build':
-        break;
-      case 'destroy':
-        this.redrawBuildings();
-        break;
-      case 'inspect':
-      default:
-        this.inspect(building);
-
-    }
+      .attr('x', region.nw.col * tileSide)
+      .attr('y', region.nw.row * tileSide)
+      .attr('width', (region.se.col - region.nw.col + 1) * tileSide)
+      .attr('height', (region.se.row - region.nw.row + 1) * tileSide);
   }
 
   private inspect(building: Building | null): void {

@@ -1,4 +1,4 @@
-import { color } from 'd3-color';
+import { exists, not } from 'src/utils/nullable';
 
 import { TYPE_ROAD } from './building-type.class';
 import { Building, BUILDING_ROAD } from './building.class';
@@ -13,6 +13,14 @@ type LocatedTile = { tile: Tile, at: Coordinates };
 
 export type Coordinates = { row: number; col: number; }
 export type Region = { nw: Coordinates; se: Coordinates; }
+
+export function compareCoordinates(a: Coordinates | null, b: Coordinates | null): boolean {
+  return (not(a) ? not(b) : exists(b) && a.row === b.row && a.col === b.col);
+}
+
+export function compareRegions(a: Region | null, b: Region | null): boolean {
+  return (not(a) ? not(b) : exists(b) && compareCoordinates(a.nw, b.nw) && compareCoordinates(a.se, b.se));
+}
 
 export class Grid {
 
@@ -38,7 +46,7 @@ export class Grid {
       .split(/\n/)
       .map(row => row.trim())
       .filter(row => row.length > 0)
-      .map(row => row.split(/(?<=.)/).map(char => new Tile(char !== '.' && new Building({ name: char, colour: color('grey') }))));
+      .map(row => row.split(/(?<=.)/).map(() => new Tile(null)));
     this.width = this.tiles[0].length;
     this.height = this.tiles.length;
   }
@@ -50,6 +58,10 @@ export class Grid {
 
   public isFree(region: Region): boolean {
     return this.tilesIn(Grid.normaliseCoordinates(region)).every(t => !t.building);
+  }
+
+  public isFreeForRoad(region: Region): boolean {
+    return this.tilesIn(Grid.normaliseCoordinates(region)).every(t => !t.building || t.building.type === TYPE_ROAD);
   }
 
   public place(building: Building, region: Region): void {
@@ -118,8 +130,8 @@ export class Grid {
     building.removeFrom(this);
   }
 
-  public buildingAt({ row, col }: Coordinates): Building | null {
-    return this.tiles[row][col].building;
+  public buildingAt(at: Coordinates | null): Building | null {
+    return at ? this.tiles[at.row][at.col].building : null;
   }
 
   private tilesIn({ nw, se }: Region): Tile[] {
