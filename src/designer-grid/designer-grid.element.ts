@@ -19,9 +19,11 @@ import { Building } from 'src/designer-engine/building.class';
 import { Grid, TileCoords, Region, compareCoordinates, compareRegions } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
-import { snapTransition, opacityTransition, slowTransition } from 'src/utils/transitions';
+import { snapTransition, opacityTransition, slowTransition, errorTransition } from 'src/utils/transitions';
 
+enum ActionValidity { VALID, INVALID, UNAVAILABLE }
 type MouseCoords = { x: number, y: number };
+type Action = { validity: ActionValidity, region: Region | null };
 
 class DesignerGrid extends HTMLElement {
 
@@ -62,6 +64,7 @@ class DesignerGrid extends HTMLElement {
   private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
 
   private mouseCoords$: ReplaySubject<MouseCoords> = new ReplaySubject(1);
+  private revalidateAction$: ReplaySubject<null> = new ReplaySubject(1);
 
   constructor() {
     super();
@@ -79,6 +82,8 @@ class DesignerGrid extends HTMLElement {
 
     this.container = this.shadowRoot.querySelector('main');
     this.svg = select(this.shadowRoot.querySelector('svg'));
+
+    // TODO: temporary buttons
     this.btnFarm = this.shadowRoot.querySelector('button#farm');
     this.btnRoad = this.shadowRoot.querySelector('button#road');
     this.btnDestroy = this.shadowRoot.querySelector('button#destroy');
@@ -129,66 +134,33 @@ class DesignerGrid extends HTMLElement {
       map(e => this.getTileCoords(e)),
       distinctUntilChanged(compareCoordinates),
       untilDisconnected(this),
-    ).subscribe(at => this.highlightCoords(at));
+    ).subscribe(at => this.redrawHighlights(at));
+
+    fromEvent<KeyboardEvent>(document, 'keypress').pipe(
+      filter(() => this.mode === 'build'),
+      filter(({ key }) => key === '.' || key === ','),
+      tap(() => this.build.rotate = !this.build.rotate),
+      startWith(null),
+      untilDisconnected(this),
+    ).subscribe(this.revalidateAction$);
 
     combineLatest([
       this.mouseCoords$,
-      fromEvent<KeyboardEvent>(document, 'keypress').pipe(
-        filter(({ key }) => key === '.' || key === ','),
-        tap(() => this.build.rotate = !this.build.rotate),
-        startWith(null),
-        untilDisconnected(this),
-      ),
+      this.revalidateAction$,
     ]).pipe(
-      map(([e]) => this.getRegion(e)),
-      distinctUntilChanged(compareRegions),
+      map(([e]) => this.validateAction(e)),
+      distinctUntilChanged(({ validity: v1, region: r1 }, { validity: v2, region: r2 }) => v1 === v2 && compareRegions(r1, r2)),
       untilDisconnected(this),
-    ).subscribe(region => this.moveOutline(region));
+    ).subscribe(action => this.validationFeedback(action));
 
     fromEvent<MouseEvent>(this.container, 'click').pipe(
       map(e => this.relativeMouseCoords(e)),
-      map(e => this.getTileCoords(e)),
+      map(e => this.validateAction(e)),
       untilDisconnected(this),
-    ).subscribe(at => this.handleClick(at));
+    ).subscribe(action => this.executeAction(action));
   }
 
   public disconnectedCallback(): void { }
-
-  private highlightCoords(at: TileCoords | null): void {
-    if (at) {
-      const side = this.computeTileSide();
-      opacityTransition(
-        0.3,
-        this.highlights.col.attr('width', side).attr('height', this.grid.height * side).attr('x', at.col * side),
-      );
-
-      opacityTransition(
-        0.3,
-        this.highlights.row.attr('height', side).attr('width', this.grid.width * side).attr('y', at.row * side),
-      );
-    } else {
-      opacityTransition(0, this.highlights.col);
-      opacityTransition(0, this.highlights.row);
-    }
-  }
-
-  private handleClick(at: TileCoords | null): void {
-    if (at) {
-      const building = this.grid.buildingAt(at);
-      if (this.mode === 'inspect' && !!building) {
-        console.log(at, building.region.nw);
-        this.inspect(building);
-      }
-
-      if (this.mode === 'destroy' && !!building) {
-        this.grid.destroy(building);
-        this.redrawBuildings();
-      }
-    } else {
-      opacityTransition(0, this.highlights.col);
-      opacityTransition(0, this.highlights.row);
-    }
-  }
 
   private getTileCoords({ x, y }: MouseCoords): TileCoords | null {
     const side = this.computeTileSide();
@@ -199,35 +171,85 @@ class DesignerGrid extends HTMLElement {
     return null;
   }
 
-  private getRegion(e: MouseCoords): Region | null {
+  // TODO: maybe extract code into separate class
+  private validateAction(mouse: MouseCoords | null): Action {
+    const tile = this.getTileCoords(mouse);
+
     if (this.mode === 'build') {
       const side = this.computeTileSide();
-      const { width: w, height: h } = this.build.rotate ? { width: this.build.type.height, height: this.build.type.width } : this.build.type;
-      const idealNW = { x: e.x - (w / 2) * side, y: e.y - (h / 2) * side };
-      const closestCol = Math.floor(idealNW.x / side) + +(mod(idealNW.x, side) > side / 2);
-      const closestRow = Math.floor(idealNW.y / side) + +(mod(idealNW.y, side) > side / 2);
-      return { nw: { col: closestCol, row: closestRow }, se: { col: closestCol + w - 1, row: closestRow + h - 1 } };
+      const { width: w, height: h } = this.build.rotate
+        ? { width: this.build.type.height, height: this.build.type.width }
+        : this.build.type;
+      const idealNW: MouseCoords = { x: mouse.x - (w / 2) * side, y: mouse.y - (h / 2) * side };
+      const { col, row }: TileCoords = {
+        col: Math.floor(idealNW.x / side) + +(mod(idealNW.x, side) > side / 2),
+        row: Math.floor(idealNW.y / side) + +(mod(idealNW.y, side) > side / 2),
+      };
+
+      const region: Region = { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
+
+      return {
+        region,
+        validity: (this.build.type === TYPE_ROAD ? this.grid.isFreeForRoad(region) : this.grid.isFree(region))
+          ? ActionValidity.VALID
+          : ActionValidity.INVALID,
+      };
     }
 
-    return this.grid.buildingAt(this.getTileCoords(e)) ?.region;
+    const building = this.grid.buildingAt(tile);
+    return { validity: building ? ActionValidity.VALID : ActionValidity.UNAVAILABLE, region: building ?.region };
   }
 
-  private moveOutline(region: Region | null): void {
-    if (!region) {
+  private validationFeedback({ validity, region }: Action): null {
+    if (validity === ActionValidity.UNAVAILABLE) {
       opacityTransition(0, this.outline);
       return;
     }
 
-    this.outline
-      .attr('error', this.mode === 'build' && !(this.build.type === TYPE_ROAD ? this.grid.isFreeForRoad(region) : this.grid.isFree(region)));
+    const side = this.computeTileSide();
+    opacityTransition(1, this.outline);
+    snapTransition(
+      this.outline
+        .attr('mode', this.mode)
+        .attr('error', validity === ActionValidity.INVALID),
+    ).attr('x', region.nw.col * side)
+      .attr('y', region.nw.row * side)
+      .attr('width', (region.se.col - region.nw.col + 1) * side)
+      .attr('height', (region.se.row - region.nw.row + 1) * side);
+  }
 
-    const tileSide = this.computeTileSide();
-    opacityTransition(1, this.outline.attr('mode', this.mode));
-    snapTransition(this.outline)
-      .attr('x', region.nw.col * tileSide)
-      .attr('y', region.nw.row * tileSide)
-      .attr('width', (region.se.col - region.nw.col + 1) * tileSide)
-      .attr('height', (region.se.row - region.nw.row + 1) * tileSide);
+  private executeAction({ validity, region }: Action): void {
+    if (validity === ActionValidity.UNAVAILABLE) {
+      return;
+    }
+
+    if (validity === ActionValidity.INVALID) {
+      errorTransition(
+        this.computeTileSide() / 2,
+        this.outline
+          .attr('mode', this.mode)
+          .attr('error', validity === ActionValidity.INVALID),
+      );
+
+      return;
+    }
+
+    const building = this.grid.buildingAt(region ?.nw);
+    switch (this.mode) {
+      case 'build':
+        this.grid.place(new Building(this.build.type), region);
+        this.redrawBuildings();
+        break;
+      case 'destroy':
+        this.grid.destroy(building);
+        this.redrawBuildings();
+        break;
+      case 'inspect':
+      default:
+        this.inspect(building);
+    }
+
+    this.revalidateAction$.next(null);
   }
 
   private inspect(building: Building | null): void {
@@ -235,42 +257,42 @@ class DesignerGrid extends HTMLElement {
   }
 
   private redraw(): void {
-    const tileSide = this.computeTileSide();
+    const side = this.computeTileSide();
     slowTransition(this.root)
       .attr('transform', `translate(${this.margins.left}, ${this.margins.top})`);
 
     slowTransition(this.axes.top)
       .call(axisTop(scaleBand()
         .domain(Array.from({ length: this.grid.width }, (_, i) => String(i)))
-        .range([0, this.grid.width * tileSide])));
+        .range([0, this.grid.width * side])));
 
     slowTransition(this.axes.bottom)
-      .attr('transform', `translate(0, ${this.grid.height * tileSide})`)
+      .attr('transform', `translate(0, ${this.grid.height * side})`)
       .call(axisBottom(scaleBand()
         .domain(Array.from({ length: this.grid.width }, (_, i) => String(i)))
-        .range([0, this.grid.width * tileSide])));
+        .range([0, this.grid.width * side])));
 
     slowTransition(this.axes.left)
       .call(axisLeft(scaleBand()
         .domain(Array.from({ length: this.grid.height }, (_, i) => String(i)))
-        .range([0, this.grid.height * tileSide])));
+        .range([0, this.grid.height * side])));
 
     slowTransition(this.axes.right)
-      .attr('transform', `translate(${this.grid.width * tileSide}, 0)`)
+      .attr('transform', `translate(${this.grid.width * side}, 0)`)
       .call(axisRight(scaleBand()
         .domain(Array.from({ length: this.grid.height }, (_, i) => String(i)))
-        .range([0, this.grid.height * tileSide])));
+        .range([0, this.grid.height * side])));
 
     slowTransition(this.axes.rows).call(
       axisRight(
-        scaleLinear().domain([0, this.grid.height]).range([0, this.grid.height * tileSide]),
-      ).tickFormat(() => '').tickSize(this.grid.width * tileSide),
+        scaleLinear().domain([0, this.grid.height]).range([0, this.grid.height * side]),
+      ).tickFormat(() => '').tickSize(this.grid.width * side),
     );
 
     slowTransition(this.axes.cols).call(
       axisBottom(
-        scaleLinear().domain([0, this.grid.width]).range([0, this.grid.width * tileSide]),
-      ).tickFormat(() => '').tickSize(this.grid.height * tileSide),
+        scaleLinear().domain([0, this.grid.width]).range([0, this.grid.width * side]),
+      ).tickFormat(() => '').tickSize(this.grid.height * side),
     );
 
     this.redrawBuildings();
@@ -298,6 +320,24 @@ class DesignerGrid extends HTMLElement {
         .text(d => d.type.name),
     ).attr('x', d => ((d.region.nw.col + d.region.se.col + 1) / 2) * tileSide)
       .attr('y', d => ((d.region.nw.row + d.region.se.row + 1) / 2) * tileSide);
+  }
+
+  private redrawHighlights(at: TileCoords | null): void {
+    if (at) {
+      const side = this.computeTileSide();
+      opacityTransition(
+        0.3,
+        this.highlights.col.attr('width', side).attr('height', this.grid.height * side).attr('x', at.col * side),
+      );
+
+      opacityTransition(
+        0.3,
+        this.highlights.row.attr('height', side).attr('width', this.grid.width * side).attr('y', at.row * side),
+      );
+    } else {
+      opacityTransition(0, this.highlights.col);
+      opacityTransition(0, this.highlights.row);
+    }
   }
 
   private computeTileSide(): number {

@@ -131,7 +131,7 @@ export class Grid {
   }
 
   public buildingAt(at: TileCoords | null): Building | null {
-    return at ? this.tiles[at.row][at.col].building : null;
+    return (at && this.tiles[at.row] && this.tiles[at.row][at.col] ?.building) || null;
   }
 
   private tilesIn({ nw, se }: Region): Tile[] {
