@@ -145,6 +145,34 @@ class DesignerGrid extends HTMLElement {
       untilDisconnected(this),
     ).subscribe(at => this.redrawHighlights(at));
 
+    fromEvent<KeyboardEvent>(document, 'keypress').pipe(
+      untilDisconnected(this),
+    ).subscribe(({ key }) => {
+      switch (key) {
+        case '.':
+        case ',':
+          this.build.rotate = !this.build.rotate;
+          break;
+        case 'b':
+          this.mode = ActionType.BUILD;
+          break;
+        case 'c': // COPY mode
+          this.mode = ActionType.BUILD;
+          // TODO: get building type under cursor
+          break;
+        case 'd':
+          this.mode = ActionType.DESTROY;
+          break;
+        case 's':
+          this.mode = ActionType.BUILD;
+          this.build.type = TYPE_ROAD;
+          break;
+        default: return;
+      }
+
+      this.revalidateAction$.next(null);
+    });
+
     combineLatest([
       this.mouseCoords$,
       this.revalidateAction$.pipe(startWith(null)),
