@@ -20,6 +20,7 @@ module.exports = {
   rules: {
     'arrow-parens': ['error', 'as-needed'],
     'class-methods-use-this': ['error', { exceptMethods: ['connectedCallback', 'disconnectedCallback'] }],
+    'func-names': ['off'],
     'global-require': ['warn'],
     'import/extensions': [
       'warn',
@@ -34,7 +35,7 @@ module.exports = {
     }],
     'import/prefer-default-export': 'off',
     'lines-between-class-members': ['warn', 'always', { exceptAfterSingleLine: true }],
-    'max-len': ['error', 140, { ignoreTrailingComments: true }],
+    'max-len': ['error', 140, 4, { ignoreTrailingComments: true, ignorePattern: '^import\\s' }],
     'no-underscore-dangle': 'off',
     'no-unused-vars': 'off',
     'object-curly-newline': ['error', {
