@@ -1,7 +1,10 @@
 import { easeExpOut, easeLinear } from 'd3-ease';
-import { Selection, local, select } from 'd3-selection';
-
+import { Selection, select } from 'd3-selection';
 import 'd3-transition';
+
+import { Geometrised } from 'src/designer-grid/designer-grid.element';
+
+import { randomInt } from './maths';
 
 const DURATION_SNAP = 75;
 const DURATION_REGULAR = 150;
@@ -26,9 +29,6 @@ export function mergeTransforms<E extends Element>(node: E, transformAttr: strin
   }).reduce((res, [k, v]) => `${res} ${k}${v}`, '').trim();
 }
 
-const ROTATION_CENTER = local<{ x: number, y: number }>();
-// const ALREADY_EXITING = local<boolean>();
-
 export function opacityTransition<E extends SVGElement, Datum>(
   opacity: number,
   e: Selection<E, Datum, any, any>,
@@ -39,12 +39,7 @@ export function opacityTransition<E extends SVGElement, Datum>(
 export function exitTransition<E extends SVGElement, Datum>(
   e: Selection<E, Datum, any, any>,
 ): void {
-  e.each(function () {
-    // if (ALREADY_EXITING.get(this)) {
-    //   return;
-    // }
-    //
-    // ALREADY_EXITING.set(this, true);
+  e.each(function () { // each exiting element should have its own transition
     opacityTransition(0, select(this));
     select(this).transition('exit').duration(DURATION_SNAP).ease(easeExpOut)
       .attr('transform', function () { return mergeTransforms(this, 'scale(1.1)'); })
@@ -65,26 +60,32 @@ export function enterTransition<E extends SVGGraphicsElement, Datum>(
     .attr('transform', function () { return mergeTransforms(this, 'scale(1)'); });
 }
 
-export function errorTransition<E extends SVGGraphicsElement, Datum>(
-  span: number,
+export function successTransition<E extends SVGElement, Datum>(
+  amplitude: number,
+  e: Selection<E, Geometrised<Datum>, any, any>,
+) {
+  return e.transition('success')
+    .duration(DURATION_SNAP)
+    .ease(easeExpOut)
+    .attr('transform', function ({ geo: { w, h } }) { return mergeTransforms(this, `scale(${(w - amplitude) / w} ${(h - amplitude) / h})`); })
+    .transition()
+    .attr('transform', function () { return mergeTransforms(this, 'scale(1)'); });
+}
+
+export function errorTransition<E extends SVGElement, Datum>(
+  amplitude: number,
   e: Selection<E, Datum, any, any>,
 ) {
   return e
-    .transition('error').duration(DURATION_SNAP).ease(easeExpOut).attr('transform', function () {
-      const { x, y, width, height } = this.getBBox();
-      ROTATION_CENTER.set(this, { x: x + width / 2, y: y + height + span });
-      return `translate(-${span / 2}) rotate(-5 ${ROTATION_CENTER.get(this).x} ${ROTATION_CENTER.get(this).y})`;
-    })
-    .transition()
-    .attr('transform', function () {
-      return `translate(${span / 2}) rotate(5 ${ROTATION_CENTER.get(this).x} ${ROTATION_CENTER.get(this).y})`;
-    })
-    .transition()
-    .attr('transform', function () {
-      return `translate(-${span / 2}) rotate(-5 ${ROTATION_CENTER.get(this).x} ${ROTATION_CENTER.get(this).y})`;
-    })
-    .transition()
-    .attr('transform', `translate(0) rotate(0)`);
+    .transition('error')
+    .duration(DURATION_REGULAR)
+    .ease(easeExpOut)
+    .attrTween('transform', function () {
+      return t => mergeTransforms(
+        this,
+        `translate(${Math.sin(randomInt(5, 10) * t * Math.PI) * amplitude} ${Math.sin(randomInt(5, 10) * t * Math.PI) * amplitude})`,
+      );
+    });
 }
 
 export function snapTransition<E extends SVGElement, Datum>(

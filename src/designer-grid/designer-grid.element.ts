@@ -18,12 +18,14 @@ import { Grid, TileCoords, Region, compareCoordinates, compareRegions } from 'sr
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
 import { not, exists } from 'src/utils/nullable';
-import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, enterTransition, mergeTransforms } from 'src/utils/transitions';
+import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, mergeTransforms, successTransition } from 'src/utils/transitions';
 
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
 enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY', COPY = 'COPY' } // string values are used in css
-type CanvasCoords = { x: number, y: number };
-type Geometry = CanvasCoords & { w: number, h: number, ctr: CanvasCoords };
+
+export type CanvasCoords = { x: number, y: number };
+export type Geometry = CanvasCoords & { w: number, h: number, ctr: CanvasCoords };
+export type Geometrised<Datum> = Datum & {geo: Geometry};
 type Action = { type: ActionType, validity: ActionValidity, region: Region | null };
 
 function compareActions(a: Action | null, b: Action | null): boolean {
@@ -47,8 +49,8 @@ class DesignerGrid extends HTMLElement {
 
   private root: Selection<SVGGElement, unknown, null, undefined>;
   private svg: Selection<SVGSVGElement, unknown, null, undefined>;
-  private buildings: Selection<SVGGElement, Building, null, undefined>;
-  private outline: Selection<SVGRectElement, unknown, null, undefined>;
+  private buildings: Selection<SVGGElement, Geometrised<Building>, null, undefined>;
+  private outline: Selection<SVGGElement, Geometrised<unknown>, null, undefined>;
 
   private axes: {
     top: Selection<SVGGElement, unknown, null, undefined>,
@@ -69,7 +71,7 @@ class DesignerGrid extends HTMLElement {
 
   // Engine model
   private grid: Grid = new Grid();
-  private mode: ActionType;
+  private mode: ActionType = ActionType.INSPECT;
   private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
 
   private mouseCoords$: ReplaySubject<CanvasCoords> = new ReplaySubject(1);
@@ -120,8 +122,12 @@ class DesignerGrid extends HTMLElement {
       cols: this.root.append('g').attr('class', 'axis cols'),
     };
 
-    this.buildings = (this.root.append('g').attr('class', 'buildings') as Selection<SVGGElement, Building, null, undefined>);
-    this.outline = this.root.append('rect').attr('class', 'outline'); // TODO maybe should be path for non-rect geometries
+    this.buildings = this.root.append('g').attr('class', 'buildings') as Selection<SVGGElement, Geometrised<Building>, any, any>;
+    this.outline = this.root.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
+    this.outline.append('rect');
+    this.outline.append('text')
+      .style('text-anchor', 'middle')
+      .style('dominant-baseline', 'text-after-edge');
 
     this.redraw();
 
@@ -239,22 +245,23 @@ class DesignerGrid extends HTMLElement {
     return { type: this.mode, validity: building ? ActionValidity.VALID : ActionValidity.UNAVAILABLE, region: building ?.region };
   }
 
-  private validationFeedback({ validity, region }: Action): null {
+  private validationFeedback({ type, validity, region }: Action): null {
     if (validity === ActionValidity.UNAVAILABLE) {
       opacityTransition(0, this.outline);
       return;
     }
 
-    const side = this.computeTileSide();
-    opacityTransition(1, this.outline);
+    opacityTransition(1, this.outline.datum({ geo: computeGeometry(region, this.computeTileSide()) }));
     snapTransition(
-      this.outline
-        .attr('mode', this.mode)
-        .attr('error', validity === ActionValidity.INVALID),
-    ).attr('x', region.nw.col * side)
-      .attr('y', region.nw.row * side)
-      .attr('width', (region.se.col - region.nw.col + 1) * side)
-      .attr('height', (region.se.row - region.nw.row + 1) * side);
+      this.outline.attr('mode', this.mode).attr('error', validity === ActionValidity.INVALID),
+    ).attr('transform', function ({ geo: { ctr: { x, y } } }) { return mergeTransforms(this, `translate(${x} ${y})`); });
+    snapTransition(this.outline.select<SVGRectElement>('rect'))
+      .attr('x', ({ geo: { w } }) => -w / 2)
+      .attr('y', ({ geo: { h } }) => -h / 2)
+      .attr('width', ({ geo: { w } }) => w)
+      .attr('height', ({ geo: { h } }) => h);
+    snapTransition(this.outline.select<SVGRectElement>('text').text(type.toLowerCase()))
+      .attr('y', ({ geo: { h } }) => -h / 2);
   }
 
   private executeAction({ validity, region }: Action): void {
@@ -262,16 +269,14 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
+    const amplitude = this.computeTileSide() / 4;
     if (validity === ActionValidity.INVALID) {
-      errorTransition(
-        this.computeTileSide() / 2,
-        this.outline
-          .attr('mode', this.mode)
-          .attr('error', validity === ActionValidity.INVALID),
-      );
+      errorTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
 
       return;
     }
+
+    successTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
 
     const building = this.grid.buildingAt(region ?.nw);
     switch (this.mode) {
@@ -345,7 +350,7 @@ class DesignerGrid extends HTMLElement {
   private redrawBuildings(): void {
     const side = this.computeTileSide();
     this.buildings.selectAll<SVGRectElement, Building>('g')
-      .data<Building & { geo: Geometry }>(
+      .data(
         this.grid.buildings.map(b => Object.assign(b, { geo: computeGeometry(b.region, side) })),
         d => String(d.id),
       )
@@ -364,7 +369,7 @@ class DesignerGrid extends HTMLElement {
             .style('dominant-baseline', 'middle')
             .text(d => d.type.name);
 
-          g.call(e => enterTransition(e));
+          // g.call(e => enterTransition(e));
           return g;
         },
         update => {

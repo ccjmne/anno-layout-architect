@@ -48,20 +48,18 @@ svg {
     }
   }
 
-  rect.outline {
-    animation: breathe 350ms alternate infinite ease-in-out;
-    stroke-width: 2px;
-    stroke: var(--colour);
-    fill: var(--colour);
+  .outline {
     cursor: pointer;
-    fill-opacity: 0;
     #{--colour}: #{$font-colour};
 
     &[mode=INSPECT] {}
 
     &[mode=BUILD] {
-      fill-opacity: .3;
       #{--colour}: #{$colour-success};
+
+      rect {
+        fill-opacity: .3;
+      }
     }
 
     &[mode=DESTROY] {
@@ -76,5 +74,18 @@ svg {
       cursor: not-allowed;
       #{--colour}: $colour-error;
     }
+
+    rect {
+      transition: stroke $duration-snap, fill $duration-snap;
+      animation: breathe $duration-slow alternate infinite ease-in-out;
+      stroke-width: 2px;
+      stroke: var(--colour);
+      fill: var(--colour);
+      fill-opacity: 0;
+    }
+  }
+
+  text {
+    user-select: none;
   }
 }
