@@ -151,6 +151,8 @@ class DesignerGrid extends HTMLElement {
       switch (key) {
         case '.':
         case ',':
+        case 'q':
+        case 'e':
           this.build.rotate = !this.build.rotate;
           break;
         case 'b':
