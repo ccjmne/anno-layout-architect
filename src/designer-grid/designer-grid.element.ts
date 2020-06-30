@@ -21,7 +21,7 @@ import { not, exists } from 'src/utils/nullable';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, enterTransition, mergeTransforms } from 'src/utils/transitions';
 
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
-enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY' } // string values are used in css
+enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY', COPY = 'COPY' } // string values are used in css
 type CanvasCoords = { x: number, y: number };
 type Geometry = CanvasCoords & { w: number, h: number, ctr: CanvasCoords };
 type Action = { type: ActionType, validity: ActionValidity, region: Region | null };
@@ -156,9 +156,8 @@ class DesignerGrid extends HTMLElement {
         case 'b':
           this.mode = ActionType.BUILD;
           break;
-        case 'c': // COPY mode
-          this.mode = ActionType.BUILD;
-          // TODO: get building type under cursor
+        case 'c':
+          this.mode = ActionType.COPY;
           break;
         case 'd':
           this.mode = ActionType.DESTROY;
@@ -284,6 +283,10 @@ class DesignerGrid extends HTMLElement {
       case ActionType.DESTROY:
         this.grid.destroy(building);
         this.redrawBuildings();
+        break;
+      case ActionType.COPY:
+        this.build.type = building.type;
+        this.mode = ActionType.BUILD;
         break;
       default:
     }

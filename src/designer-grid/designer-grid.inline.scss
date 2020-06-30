@@ -57,6 +57,9 @@ svg {
       #{--colour}: $colour-error;
     }
 
+    &[mode=COPY] {
+      #{--colour}: #{$colour-success};
+    }
 
     &[error=true] {
       cursor: not-allowed;
