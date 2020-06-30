@@ -15,11 +15,11 @@ export type Region = { nw: TileCoords; se: TileCoords; }
 type LocatedTile = { tile: Tile, at: TileCoords };
 
 export function compareCoordinates(a: TileCoords | null, b: TileCoords | null): boolean {
-  return (not(a) ? not(b) : exists(b) && a.row === b.row && a.col === b.col);
+  return not(a) ? not(b) : exists(b) && a.row === b.row && a.col === b.col;
 }
 
 export function compareRegions(a: Region | null, b: Region | null): boolean {
-  return (not(a) ? not(b) : exists(b) && compareCoordinates(a.nw, b.nw) && compareCoordinates(a.se, b.se));
+  return not(a) ? not(b) : exists(b) && compareCoordinates(a.nw, b.nw) && compareCoordinates(a.se, b.se);
 }
 
 export class Grid {

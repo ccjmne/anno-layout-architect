@@ -46,16 +46,17 @@ svg {
     fill-opacity: 0;
     #{--colour}: #{$font-colour};
 
-    &[mode=build] {
+    &[mode=INSPECT] {}
+
+    &[mode=BUILD] {
       fill-opacity: .3;
       #{--colour}: #{$colour-success};
     }
 
-    &[mode=destroy] {
+    &[mode=DESTROY] {
       #{--colour}: $colour-error;
     }
 
-    &[mode=inspect] {}
 
     &[error=true] {
       cursor: not-allowed;
