@@ -1,3 +1,13 @@
+@keyframes breathe {
+  0% {
+    stroke-width: 2px;
+  }
+
+  100% {
+    stroke-width: 3px;
+  }
+}
+
 :host {
   display: grid;
   grid-template: 'buttons' auto 'grid' 1fr;
@@ -39,6 +49,7 @@ svg {
   }
 
   rect.outline {
+    animation: breathe 350ms alternate infinite ease-in-out;
     stroke-width: 2px;
     stroke: var(--colour);
     fill: var(--colour);
