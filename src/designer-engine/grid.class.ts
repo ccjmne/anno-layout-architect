@@ -66,8 +66,9 @@ export class Grid {
 
   public place(building: Building, region: Region): void {
     if (this.isFree(region)) {
-      building.placeOn(region, this.tilesIn(Grid.normaliseCoordinates(region)));
+      building.moveTo(region);
       this.buildings.push(building);
+      this.tilesIn(region).forEach(t => t.setBuilding(building));
     }
   }
 
@@ -119,11 +120,9 @@ export class Grid {
   public placeRoad(from: TileCoords, to: TileCoords): void {
     const a = this.planRoad(from, to, ORIENTATION.LATITUDE);
     const b = this.planRoad(from, to, ORIENTATION.LONGITUDE);
-    (b.length < a.length ? b : a).filter(({ tile: { building } }) => !building).forEach(({ tile, at }) => {
-      const road = new Building(TYPE_ROAD, BUILDING_ROAD);
-      road.placeOn({ nw: at, se: at }, [tile]);
-      this.buildings.push(road);
-    });
+    (b.length < a.length ? b : a)
+      .filter(({ tile: { building } }) => !building)
+      .forEach(({ at }) => this.place(new Building(TYPE_ROAD, BUILDING_ROAD), { nw: at, se: at }));
   }
 
   public destroy(building: Building): void {
