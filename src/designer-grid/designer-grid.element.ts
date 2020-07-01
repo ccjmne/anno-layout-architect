@@ -81,8 +81,7 @@ class DesignerGrid extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' });
     this.grid.place(new Building(TYPE_FARM), { nw: { row: 1, col: 1 }, se: { row: 2, col: 3 } });
-    this.grid.placeRoad({ row: 0, col: 2 }, { row: 3, col: 3 });
-    this.grid.placeRoad({ row: 0, col: 0 }, { row: 3, col: 9 });
+    this.grid.place(new Building(TYPE_FARM), { nw: { row: 7, col: 8 }, se: { row: 9, col: 9 } });
   }
 
   public connectedCallback(): void {
@@ -285,11 +284,11 @@ class DesignerGrid extends HTMLElement {
         break;
       case ActionType.BUILD:
         this.grid.place(new Building(this.build.type), region);
-        this.redrawBuildings();
+        this.redraw();
         break;
       case ActionType.DESTROY:
         this.grid.destroy(building);
-        this.redrawBuildings();
+        this.redraw();
         break;
       case ActionType.COPY:
         this.build.type = building.type;
@@ -335,13 +334,13 @@ class DesignerGrid extends HTMLElement {
     slowTransition(this.axes.rows).call(
       axisRight(
         scaleLinear().domain([0, this.grid.height]).range([0, this.grid.height * side]),
-      ).tickFormat(() => '').tickSize(this.grid.width * side),
+      ).ticks(this.grid.height).tickFormat(() => '').tickSize(this.grid.width * side),
     );
 
     slowTransition(this.axes.cols).call(
       axisBottom(
         scaleLinear().domain([0, this.grid.width]).range([0, this.grid.width * side]),
-      ).tickFormat(() => '').tickSize(this.grid.height * side),
+      ).ticks(this.grid.width).tickFormat(() => '').tickSize(this.grid.height * side),
     );
 
     this.redrawBuildings();

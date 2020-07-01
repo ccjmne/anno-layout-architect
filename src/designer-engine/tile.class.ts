@@ -1,5 +1,6 @@
 import { Building } from './building.class';
 
+// TODO: this class is... useless 😱
 export class Tile {
 
   private _building: Building | null;
