@@ -3,7 +3,7 @@ const { resolve } = require('path');
 module.exports = {
   parser: '@typescript-eslint/parser',
   plugins: ['@typescript-eslint'],
-  extends: 'airbnb-base',
+  extends: ['airbnb-base'],
   env: { browser: true },
   settings: {
     'import/resolver': {
@@ -35,9 +35,10 @@ module.exports = {
     }],
     'import/prefer-default-export': 'off',
     'lines-between-class-members': ['warn', 'always', { exceptAfterSingleLine: true }],
+    'max-classes-per-file': 'off',
     'max-len': ['error', 140, 4, { ignoreTrailingComments: true, ignorePattern: '^import\\s' }],
-    'no-underscore-dangle': 'off',
-    'no-unused-vars': 'off',
+    'no-underscore-dangle': 'error',
+    'no-unused-vars': 'off', // broken w/ TypeScript, see https://stackoverflow.com/questions/57802057/eslint-configuring-no-unused-vars-for-typescript
     'object-curly-newline': ['error', {
       ImportDeclaration: 'never',
       ObjectExpression: { consistent: true, multiline: true },
