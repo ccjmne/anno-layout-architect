@@ -1,3 +1,4 @@
+import { range } from 'd3-array';
 import { axisTop, axisBottom, axisLeft, axisRight } from 'd3-axis';
 import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection } from 'd3-selection';
@@ -47,7 +48,8 @@ class DesignerGrid extends HTMLElement {
 
   // D3 Selections
 
-  private root: Selection<SVGGElement, unknown, null, undefined>;
+  private center: Selection<SVGGElement, unknown, null, undefined>;
+  private zerozero: Selection<SVGGElement, unknown, null, undefined>;
   private svg: Selection<SVGSVGElement, unknown, null, undefined>;
   private buildings: Selection<SVGGElement, Geometrised<Building>, null, undefined>;
   private outline: Selection<SVGGElement, Geometrised<unknown>, null, undefined>;
@@ -65,9 +67,6 @@ class DesignerGrid extends HTMLElement {
     row: Selection<SVGRectElement, number | null, null, undefined>,
     col: Selection<SVGRectElement, number | null, null, undefined>
   }
-
-  // Private properties
-  private margins = { top: 50, right: 50, bottom: 50, left: 50 };
 
   // Engine model
   private grid: Grid = new Grid();
@@ -106,23 +105,24 @@ class DesignerGrid extends HTMLElement {
       console.log(this.grid.buildings);
     });
 
-    this.root = this.svg.append('g').attr('class', 'root').attr('transform', `translate(${this.margins.right}, ${this.margins.top})`);
+    this.center = this.svg.append('g').attr('class', 'center');
+    this.zerozero = this.center.append('g').attr('class', 'zerozero');
     this.highlights = {
-      row: this.root.append('rect').datum<number | null>(null).attr('class', 'highlight'),
-      col: this.root.append('rect').datum<number | null>(null).attr('class', 'highlight'),
+      row: this.zerozero.append('rect').datum<number | null>(null).attr('class', 'highlight'),
+      col: this.zerozero.append('rect').datum<number | null>(null).attr('class', 'highlight'),
     };
 
     this.axes = {
-      top: this.root.append('g').attr('class', 'axis top'),
-      right: this.root.append('g').attr('class', 'axis right'),
-      bottom: this.root.append('g').attr('class', 'axis bottom'),
-      left: this.root.append('g').attr('class', 'axis left'),
-      rows: this.root.append('g').attr('class', 'axis rows'),
-      cols: this.root.append('g').attr('class', 'axis cols'),
+      top: this.zerozero.append('g').attr('class', 'axis top'),
+      right: this.zerozero.append('g').attr('class', 'axis right'),
+      bottom: this.zerozero.append('g').attr('class', 'axis bottom'),
+      left: this.zerozero.append('g').attr('class', 'axis left'),
+      rows: this.zerozero.append('g').attr('class', 'axis rows'),
+      cols: this.zerozero.append('g').attr('class', 'axis cols'),
     };
 
-    this.buildings = this.root.append('g').attr('class', 'buildings') as Selection<SVGGElement, Geometrised<Building>, any, any>;
-    this.outline = this.root.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
+    this.buildings = this.zerozero.append('g').attr('class', 'buildings') as Selection<SVGGElement, Geometrised<Building>, any, any>;
+    this.outline = this.zerozero.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
     this.outline.append('rect');
     this.outline.append('text')
       .style('text-anchor', 'middle')
@@ -207,11 +207,7 @@ class DesignerGrid extends HTMLElement {
 
   private getTileCoords({ x, y }: CanvasCoords): TileCoords | null {
     const side = this.computeTileSide();
-    if (x > 0 && x < this.grid.width * side && y > 0 && y < this.grid.height * side) {
-      return { row: Math.floor(y / side), col: Math.floor(x / side) };
-    }
-
-    return null;
+    return { row: Math.floor(y / side), col: Math.floor(x / side) };
   }
 
   // TODO: maybe extract code into separate class
@@ -306,44 +302,77 @@ class DesignerGrid extends HTMLElement {
 
   private redraw(): void {
     const side = this.computeTileSide();
-    slowTransition(this.root)
-      .attr('transform', `translate(${this.margins.left}, ${this.margins.top})`);
+
+    const colSpan: [number, number] = [this.grid.bounds.nw.col, this.grid.bounds.se.col + 1];
+    const rowSpan: [number, number] = [this.grid.bounds.nw.row, this.grid.bounds.se.row + 1];
+    const xSpan: [number, number] = colSpan.map(d => d * side) as [number, number];
+    const ySpan: [number, number] = rowSpan.map(d => d * side) as [number, number];
+
+    const w: number = this.grid.width;
+    const h: number = this.grid.height;
+
+    slowTransition(this.center)
+      .attr('transform', `translate(${this.container.offsetWidth / 2}, ${this.container.offsetHeight / 2})`);
+    slowTransition(this.zerozero)
+      .attr('transform', `translate(${-((w * side / 2) + xSpan[0])}, ${-((h * side / 2) + ySpan[0])})`);
 
     slowTransition(this.axes.top)
+      .attr('transform', `translate(0, ${ySpan[0]})`)
       .call(axisTop(scaleBand()
-        .domain(Array.from({ length: this.grid.width }, (_, i) => String(i)))
-        .range([0, this.grid.width * side])));
+        .domain(range(...colSpan).map((_, i) => String(i))) // .map(String))
+        .range(xSpan)));
 
     slowTransition(this.axes.bottom)
-      .attr('transform', `translate(0, ${this.grid.height * side})`)
+      .attr('transform', `translate(0, ${ySpan[1]})`)
       .call(axisBottom(scaleBand()
-        .domain(Array.from({ length: this.grid.width }, (_, i) => String(i)))
-        .range([0, this.grid.width * side])));
+        .domain(range(...colSpan).map((_, i) => String(i))) // .map(String))
+        .range(xSpan)));
 
     slowTransition(this.axes.left)
+      .attr('transform', `translate(${xSpan[0]}, 0)`)
       .call(axisLeft(scaleBand()
-        .domain(Array.from({ length: this.grid.height }, (_, i) => String(i)))
-        .range([0, this.grid.height * side])));
+        .domain(range(...rowSpan).map((_, i) => String(i))) // .map(String))
+        .range(ySpan)));
 
     slowTransition(this.axes.right)
-      .attr('transform', `translate(${this.grid.width * side}, 0)`)
+      .attr('transform', `translate(${xSpan[1]}, 0)`)
       .call(axisRight(scaleBand()
-        .domain(Array.from({ length: this.grid.height }, (_, i) => String(i)))
-        .range([0, this.grid.height * side])));
+        .domain(range(...rowSpan).map((_, i) => String(i))) // .map(String))
+        .range(ySpan)));
 
-    slowTransition(this.axes.rows).call(
-      axisRight(
-        scaleLinear().domain([0, this.grid.height]).range([0, this.grid.height * side]),
-      ).ticks(this.grid.height).tickFormat(() => '').tickSize(this.grid.width * side),
-    );
-
-    slowTransition(this.axes.cols).call(
-      axisBottom(
-        scaleLinear().domain([0, this.grid.width]).range([0, this.grid.width * side]),
-      ).ticks(this.grid.width).tickFormat(() => '').tickSize(this.grid.height * side),
-    );
-
+    this.redrawBackgrid();
     this.redrawBuildings();
+  }
+
+  private redrawBackgrid(): void {
+    const side = this.computeTileSide();
+
+    const w = Math.ceil(this.container.offsetWidth / side) + 1;
+    const h = Math.ceil(this.container.offsetHeight / side) + 1;
+
+    const ctr: TileCoords = {
+      col: (this.grid.bounds.se.col + this.grid.bounds.nw.col) / 2,
+      row: (this.grid.bounds.se.row + this.grid.bounds.nw.row) / 2,
+    };
+
+    const colSpan: [number, number] = [Math.ceil(-w / 2) + ctr.col, Math.ceil(w / 2) + ctr.col];
+    const rowSpan: [number, number] = [Math.ceil(-h / 2) + ctr.row, Math.ceil(h / 2) + ctr.row];
+    const xSpan: [number, number] = colSpan.map(d => d * side) as [number, number];
+    const ySpan: [number, number] = rowSpan.map(d => d * side) as [number, number];
+
+    slowTransition(this.axes.rows)
+      .attr('transform', `translate(${xSpan[0]}, 0)`)
+      .call(
+        axisRight(scaleLinear().domain(rowSpan).range(ySpan))
+          .ticks(h).tickFormat(() => '').tickSize(w * side),
+      );
+
+    slowTransition(this.axes.cols)
+      .attr('transform', `translate(0, ${ySpan[0]})`)
+      .call(
+        axisBottom(scaleLinear().domain(colSpan).range(xSpan))
+          .ticks(w).tickFormat(() => '').tickSize(h * side),
+      );
   }
 
   private redrawBuildings(): void {
@@ -392,14 +421,36 @@ class DesignerGrid extends HTMLElement {
   private redrawHighlights(at: TileCoords | null): void {
     if (at) {
       const side = this.computeTileSide();
+
+      const w = Math.ceil(this.container.offsetWidth / side) + 1;
+      const h = Math.ceil(this.container.offsetHeight / side) + 1;
+
+      const ctr: TileCoords = {
+        col: (this.grid.bounds.se.col + this.grid.bounds.nw.col) / 2,
+        row: (this.grid.bounds.se.row + this.grid.bounds.nw.row) / 2,
+      };
+
+      const colSpan: [number, number] = [Math.ceil(-w / 2) + ctr.col, Math.ceil(w / 2) + ctr.col];
+      const rowSpan: [number, number] = [Math.ceil(-h / 2) + ctr.row, Math.ceil(h / 2) + ctr.row];
+      const xSpan: [number, number] = colSpan.map(d => d * side) as [number, number];
+      const ySpan: [number, number] = rowSpan.map(d => d * side) as [number, number];
+
       opacityTransition(
         0.3,
-        this.highlights.col.attr('width', side).attr('height', this.grid.height * side).attr('x', at.col * side),
+        this.highlights.col
+          .attr('x', at.col * side)
+          .attr('y', ySpan[0])
+          .attr('width', side)
+          .attr('height', h * side),
       );
 
       opacityTransition(
         0.3,
-        this.highlights.row.attr('height', side).attr('width', this.grid.width * side).attr('y', at.row * side),
+        this.highlights.row
+          .attr('x', xSpan[0])
+          .attr('y', at.row * side)
+          .attr('width', w * side)
+          .attr('height', side),
       );
     } else {
       opacityTransition(0, this.highlights.col);
@@ -408,17 +459,28 @@ class DesignerGrid extends HTMLElement {
   }
 
   private computeTileSide(): number {
-    const width = this.container.offsetWidth - this.margins.left - this.margins.right;
-    const height = this.container.offsetHeight - this.margins.top - this.margins.bottom;
+    const width = this.container.offsetWidth;
+    const height = this.container.offsetHeight;
 
-    const cols = this.grid.width;
-    const rows = this.grid.height;
+    const cols = this.grid.width + 10; // TODO: should be a constant
+    const rows = this.grid.height + 10; // TODO: should be a constant
 
     return Math.min(Math.floor(width / cols), Math.floor(height / rows));
   }
 
   private getCanvasCoords({ offsetX, offsetY }: MouseEvent): CanvasCoords {
-    return ({ x: offsetX - this.margins.left, y: offsetY - this.margins.top });
+    const side = this.computeTileSide();
+    const colSpan: [number, number] = [this.grid.bounds.nw.col, this.grid.bounds.se.col + 1];
+    const rowSpan: [number, number] = [this.grid.bounds.nw.row, this.grid.bounds.se.row + 1];
+    const xSpan: [number, number] = colSpan.map(d => d * side) as [number, number];
+    const ySpan: [number, number] = rowSpan.map(d => d * side) as [number, number];
+
+    const w: number = this.grid.width;
+    const h: number = this.grid.height;
+    return ({
+      x: offsetX - (this.container.offsetWidth / 2) + ((w * side / 2) + xSpan[0]),
+      y: offsetY - (this.container.offsetHeight / 2) + ((h * side / 2) + ySpan[0]),
+    });
   }
 
 }

@@ -28,8 +28,15 @@ export class Grid {
   readonly buildings: Building[] = [];
   private tiles: Tile[][] = [];
 
-  public width: number = 0; // TODO: only getter should be public
-  public height: number = 0; // TODO: only getter should be public
+  public bounds: Region;
+
+  public get width(): number {
+    return this.bounds.se.col - this.bounds.nw.col + 1;
+  }
+
+  public get height(): number {
+    return this.bounds.se.row - this.bounds.nw.row + 1;
+  }
 
   constructor() {
     this.resizeGrid();
@@ -54,13 +61,10 @@ export class Grid {
 
   private resizeGrid(): void {
     if (!this.buildings.length) {
-      this.width = 10;
-      this.height = 10;
+      this.bounds = { nw: { col: 0, row: 0 }, se: { col: -1, row: -1 } };
       this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => ({ building: null })));
       return;
     }
-
-    const currentBounds = { nw: { row: 0, col: 0 }, se: { row: this.height - 1, col: this.width - 1 } };
 
     const bounds = this.buildings.reduce((
       { nw: { col: nwX1, row: nwY1 }, se: { col: seX1, row: seY1 } },
@@ -69,27 +73,13 @@ export class Grid {
       nw: { col: Math.min(nwX1, nwX2), row: Math.min(nwY1, nwY2) }, se: { col: Math.max(seX1, seX2), row: Math.max(seY1, seY2) },
     }), { nw: { col: Infinity, row: Infinity }, se: { col: -Infinity, row: -Infinity } } as Region);
 
-    function translate(region: Region, { row, col }: TileCoords): Region {
-      return { nw: { col: region.nw.col + col, row: region.nw.row + row }, se: { col: region.se.col + col, row: region.se.row + row } };
-    }
-
-    const cols = bounds.se.col - bounds.nw.col + 1;
-    const rows = bounds.se.row - bounds.nw.row + 1;
-
-    console.log(JSON.stringify(currentBounds));
-    console.log(JSON.stringify(bounds));
-    if (!compareRegions(bounds, currentBounds)) {
+    if (!compareRegions(bounds, this.bounds)) {
+      this.bounds = bounds;
       // create new grid
-      this.tiles = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ building: null })));
-
-      // translate buildings coordinates
-      this.buildings.forEach(b => b.moveTo(translate(b.region, { col: -bounds.nw.col, row: -bounds.nw.row })));
+      this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => ({ building: null })));
 
       // place buildings on new grid
       this.buildings.forEach(b => this.tilesOf(b.region).forEach(t => t.building = b));
-
-      this.width = cols;
-      this.height = rows;
     }
   }
 
@@ -152,11 +142,21 @@ export class Grid {
     this.resizeGrid();
   }
 
-  public buildingAt(at: TileCoords | null): Building | null {
-    return (at && this.tiles[at.row] && this.tiles[at.row][at.col] ?.building) || null;
+  public buildingAt(at: TileCoords): Building | null {
+    const localAt = this.translateCoords(at);
+    return (this.tiles[localAt.row] && this.tiles[localAt.row][localAt.col] ?.building) || null;
   }
 
-  private tilesOf({ nw, se }: Region): Tile[] {
+  private translateCoords({ col, row }: TileCoords): TileCoords {
+    return { col: col - this.bounds.nw.col, row: row - this.bounds.nw.row };
+  }
+
+  private translate({ nw, se }: Region): Region {
+    return { nw: this.translateCoords(nw), se: this.translateCoords(se) };
+  }
+
+  private tilesOf(region: Region): Tile[] {
+    const { nw, se } = this.translate(region);
     return [].concat(...this.tiles
       .filter((_, r) => r >= nw.row && r <= se.row)
       .map((row => row.filter((_, c) => c >= nw.col && c <= se.col))));
