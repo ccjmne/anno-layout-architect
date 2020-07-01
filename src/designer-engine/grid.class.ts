@@ -1,68 +1,80 @@
-import { exists, not } from 'src/utils/nullable';
-
-import { TYPE_ROAD } from './building-type.class';
-import { Building } from './building.class';
+import { Building, TYPE_ROAD, BuildingType } from './building.class';
+import { Region, compareRegions, TileCoords } from './definitions';
 
 // enum ORIENTATION {
 //   LONGITUDE = -1, // within a row
 //   LATITUDE = 1, // within a column
 // }
 
-export type TileCoords = { row: number; col: number; }
-export type Region = { nw: TileCoords; se: TileCoords; }
+class Tile {
 
-export function compareCoordinates(a: TileCoords | null, b: TileCoords | null): boolean {
-  return not(a) ? not(b) : exists(b) && a.row === b.row && a.col === b.col;
-}
+  public building: Building | null;
+  public link(building: Building): void {
+    this.building = building;
+  }
 
-export function compareRegions(a: Region | null, b: Region | null): boolean {
-  return not(a) ? not(b) : exists(b) && compareCoordinates(a.nw, b.nw) && compareCoordinates(a.se, b.se);
-}
+  public unlink(): void {
+    this.building = null;
+  }
 
-type Tile = {
-  building: Building | null;
 }
 
 export class Grid {
 
-  readonly buildings: Building[] = [];
-  private tiles: Tile[][] = [];
-
+  public readonly buildings: Building[] = [];
   public bounds: Region;
+  public get width(): number { return this.bounds.se.col - this.bounds.nw.col + 1; } // TODO: DELETE
+  public get height(): number { return this.bounds.se.row - this.bounds.nw.row + 1; } // TODO: DELETE
 
-  public get width(): number {
-    return this.bounds.se.col - this.bounds.nw.col + 1;
-  }
-
-  public get height(): number {
-    return this.bounds.se.row - this.bounds.nw.row + 1;
-  }
+  private tiles: Tile[][] = [];
 
   constructor() {
     this.resizeGrid();
   }
 
-  public isFree(region: Region): boolean {
-    return this.tilesOf(region).every(t => !t.building);
+  public buildingAt(at: TileCoords): Building | null {
+    const localAt = this.translateToInternalCoords(at);
+    return this.tiles[localAt.row] && this.tiles[localAt.row][localAt.col] ?.building;
   }
 
-  public isFreeForRoad(region: Region): boolean {
-    return this.tilesOf(region).every(t => !t.building || t.building.type === TYPE_ROAD);
+  public buildingsIn(region?: Region, ...ignore: BuildingType[]): Set<Building> {
+    if (!region) {
+      return new Set(this.buildings.filter(({ type }) => !ignore.includes(type)));
+    }
+
+    return new Set(
+      this.tilesIn(region).filter(({ building }) => building && !ignore.includes(building.type)).map(({ building }) => building),
+    );
+  }
+
+  /**
+   * Check whether the region is free of any buildings.
+   * @param  opts   If opts.road is truthy, the region may contain road tiles
+   * @return        `true` if the region is building-free.
+   */
+  public isFree(region: Region, opts?: { road?: boolean }): boolean {
+    return this.buildingsIn(region, ...(opts?.road ? [TYPE_ROAD] : [])).size === 0;
   }
 
   public place(building: Building, region: Region): void {
     if (this.isFree(region)) {
       building.moveTo(region);
       this.buildings.push(building);
-      this.tilesOf(building.region).forEach(t => t.building = building);
+      this.tilesIn(building.region).forEach(t => t.link(building));
       this.resizeGrid();
     }
+  }
+
+  public remove(building: Building): void {
+    this.tilesIn(building.region).forEach(t => t.unlink());
+    this.buildings.splice(this.buildings.indexOf(building), 1);
+    this.resizeGrid();
   }
 
   private resizeGrid(): void {
     if (!this.buildings.length) {
       this.bounds = { nw: { col: 0, row: 0 }, se: { col: -1, row: -1 } };
-      this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => ({ building: null })));
+      this.tiles = [];
       return;
     }
 
@@ -76,13 +88,13 @@ export class Grid {
     if (!compareRegions(bounds, this.bounds)) {
       this.bounds = bounds;
       // create new grid
-      this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => ({ building: null })));
+      this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => new Tile()));
 
       // place buildings on new grid
-      this.buildings.forEach(b => this.tilesOf(b.region).forEach(t => t.building = b));
+      this.buildings.forEach(b => this.tilesIn(b.region).forEach(t => t.link(b)));
     }
   }
-
+  //
   // // Returns list of tiles w/ shortest path prioritising travel along a certain ORIENTATION, empty list if impossible
   // public planRoad(from: TileCoords, to: TileCoords, orientation: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
   //   type T = { tile: Tile, at: TileCoords, beeline: number, prev?: T, dir?: ORIENTATION }; // `beeline` is distance from destination, as the crow flies
@@ -136,35 +148,19 @@ export class Grid {
   //     .forEach(({ at }) => this.place(new Building(TYPE_ROAD, BUILDING_ROAD), { nw: at, se: at }));
   // }
 
-  public destroy(building: Building): void {
-    this.tilesOf(building.region).forEach(t => t.building = null);
-    this.buildings.splice(this.buildings.indexOf(building), 1);
-    this.resizeGrid();
-  }
-
-  public buildingAt(at: TileCoords): Building | null {
-    const localAt = this.translateCoords(at);
-    return (this.tiles[localAt.row] && this.tiles[localAt.row][localAt.col] ?.building) || null;
-  }
-
-  private translateCoords({ col, row }: TileCoords): TileCoords {
+  private translateToInternalCoords({ col, row }: TileCoords): TileCoords {
     return { col: col - this.bounds.nw.col, row: row - this.bounds.nw.row };
   }
 
-  private translate({ nw, se }: Region): Region {
-    return { nw: this.translateCoords(nw), se: this.translateCoords(se) };
+  private translateToInternal({ nw, se }: Region): Region {
+    return { nw: this.translateToInternalCoords(nw), se: this.translateToInternalCoords(se) };
   }
 
-  private tilesOf(region: Region): Tile[] {
-    const { nw, se } = this.translate(region);
+  private tilesIn(region: Region): Tile[] {
+    const { nw, se } = this.translateToInternal(region);
     return [].concat(...this.tiles
       .filter((_, r) => r >= nw.row && r <= se.row)
       .map((row => row.filter((_, c) => c >= nw.col && c <= se.col))));
   }
-
-  // // Is `true` if the tile is building-free OR already is a road
-  // private static isRoadable(tile: Tile): boolean {
-  //   return !tile.building || (tile.building.parent === BUILDING_ROAD);
-  // }
 
 }

@@ -13,9 +13,9 @@ import { map } from 'rxjs/internal/operators/map';
 
 import { startWith } from 'rxjs/internal/operators/startWith';
 
-import { TYPE_FARM, BuildingType, TYPE_ROAD } from 'src/designer-engine/building-type.class';
-import { Building } from 'src/designer-engine/building.class';
-import { Grid, TileCoords, Region, compareCoordinates, compareRegions } from 'src/designer-engine/grid.class';
+import { Building, BuildingType, TYPE_ROAD, TYPE_FARM } from 'src/designer-engine/building.class';
+import { TileCoords, Region, compareCoordinates, compareRegions } from 'src/designer-engine/definitions';
+import { Grid } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
 import { not, exists } from 'src/utils/nullable';
@@ -230,9 +230,7 @@ class DesignerGrid extends HTMLElement {
       return {
         type: ActionType.BUILD,
         region,
-        validity: (this.build.type === TYPE_ROAD ? this.grid.isFreeForRoad(region) : this.grid.isFree(region))
-          ? ActionValidity.VALID
-          : ActionValidity.INVALID,
+        validity: this.grid.isFree(region, { road: this.build.type === TYPE_ROAD }) ? ActionValidity.VALID : ActionValidity.INVALID,
       };
     }
 
@@ -276,14 +274,14 @@ class DesignerGrid extends HTMLElement {
     const building = this.grid.buildingAt(region ?.nw);
     switch (this.mode) {
       case ActionType.INSPECT:
-        this.inspect(building);
+        console.log(building);
         break;
       case ActionType.BUILD:
         this.grid.place(new Building(this.build.type), region);
         this.redraw();
         break;
       case ActionType.DESTROY:
-        this.grid.destroy(building);
+        this.grid.remove(building);
         this.redraw();
         break;
       case ActionType.COPY:
@@ -294,10 +292,6 @@ class DesignerGrid extends HTMLElement {
     }
 
     this.revalidateAction$.next(null);
-  }
-
-  private inspect(building: Building | null): void {
-    console.log(building);
   }
 
   private redraw(): void {
