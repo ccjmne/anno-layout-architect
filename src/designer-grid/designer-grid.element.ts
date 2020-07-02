@@ -177,7 +177,7 @@ class DesignerGrid extends HTMLElement {
     fromEvent<KeyboardEvent>(document, 'keypress').pipe(
       untilDisconnected(this),
     ).subscribe(({ key }) => {
-      switch (key) {
+      switch (key.toLowerCase()) {
         case '.':
         case ',':
         case 'q':
