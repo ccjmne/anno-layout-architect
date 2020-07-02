@@ -26,7 +26,8 @@ import { snapTransition, opacityTransition, slowTransition, errorTransition, exi
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
 enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY', COPY = 'COPY' } // string values are used in css
 
-const TILES_PADDING = 4;
+const TILES_PADDING: number = 4;
+const SUBDIVISION_SIZE: number = 4;
 
 export type CanvasCoords = { x: number, y: number };
 export type Geometry = { x: [number, number], y: [number, number], w: number, h: number, cx: number, cy: number };
@@ -392,10 +393,14 @@ class DesignerGrid extends HTMLElement {
     slowTransition(this.axes.rows)
       .attr('transform', `translate(${x[0]}, 0)`)
       .call(axisRight(scaleLinear().domain(y.map(d => d / this.tileSide)).range(y)).ticks(h / this.tileSide).tickSize(w));
+    this.axes.rows.selectAll<SVGLineElement, number>('g.tick line')
+      .style('stroke-width', d => (mod(d, SUBDIVISION_SIZE) ? 1 : 2));
 
     slowTransition(this.axes.cols)
       .attr('transform', `translate(0, ${y[0]})`)
       .call(axisBottom(scaleLinear().domain(x.map(d => d / this.tileSide)).range(x)).ticks(w / this.tileSide).tickSize(h));
+    this.axes.cols.selectAll<SVGLineElement, number>('g.tick line')
+      .style('stroke-width', d => (mod(d, SUBDIVISION_SIZE) ? 1 : 2));
   }
 
   private redrawHighlights(): void {
