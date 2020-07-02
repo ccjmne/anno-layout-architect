@@ -18,6 +18,8 @@ body {
 
   > main {
     grid-area: main;
+    width: 100vw;
+    margin: 0 -5vw;
   }
 
   > footer {
