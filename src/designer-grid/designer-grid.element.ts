@@ -333,14 +333,14 @@ class DesignerGrid extends HTMLElement {
 
   private computeBackgroundGeometry(): Geometry {
     const { cx, cy } = this.computeGeometry(this.grid.bounds);
-    const w = this.container.offsetWidth + 2; // 1px padding to each this.tileSide
-    const h = this.container.offsetHeight + 2; // 1px padding to each this.tileSide
+    const w = this.container.offsetWidth + 2; // 1px padding to each side
+    const h = this.container.offsetHeight + 2; // 1px padding to each side
 
     return {
       w,
       h,
-      cx, // unsure these are exact
-      cy, // unsure these are exact
+      cx,
+      cy,
       x: [-w / 2 + cx, w / 2 + cx],
       y: [-h / 2 + cy, h / 2 + cy],
     };

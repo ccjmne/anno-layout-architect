@@ -22,6 +22,7 @@ function parse(transformStr: string): Partial<Record<'translate' | 'rotate' | 's
     .reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {});
 }
 
+// TODO: maybe drop this and its usages
 export function mergeTransforms<E extends Element>(node: E, transformAttr: string) {
   return Object.entries({
     ...parse(node.getAttribute('transform') || ''),
@@ -67,6 +68,7 @@ export function successTransition<E extends SVGElement, Datum>(
   return e.transition('success')
     .duration(DURATION_SNAP)
     .ease(easeExpOut)
+    // TODO: Prefer using a SINGLE transition w/ a attrTween instead of chained ones
     .attr('transform', function ({ geo: { w, h } }) { return mergeTransforms(this, `scale(${(w - amplitude) / w} ${(h - amplitude) / h})`); })
     .transition()
     .attr('transform', function () { return mergeTransforms(this, 'scale(1)'); });
