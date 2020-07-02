@@ -1,3 +1,5 @@
+import { ReplaySubject, Subject } from 'rxjs';
+
 import { Building, TYPE_ROAD, BuildingType } from './building.class';
 import { Region, compareRegions, TileCoords } from './definitions';
 
@@ -5,6 +7,8 @@ import { Region, compareRegions, TileCoords } from './definitions';
 //   LONGITUDE = -1, // within a row
 //   LATITUDE = 1, // within a column
 // }
+
+const EMPTY_BOUNDS: Region = { nw: { row: 0, col: 0 }, se: { row: -1, col: -1 } };
 
 class Tile {
 
@@ -21,10 +25,14 @@ class Tile {
 
 export class Grid {
 
-  public readonly buildings: Building[] = [];
+  // Should be a BehaviorSubject, but can't due to a current bug in rxjs
+  // See https://github.com/ReactiveX/rxjs/issues/5105
   public bounds: Region;
-  public get width(): number { return this.bounds.se.col - this.bounds.nw.col + 1; } // TODO: DELETE
-  public get height(): number { return this.bounds.se.row - this.bounds.nw.row + 1; } // TODO: DELETE
+
+  public get width(): number { return this.bounds.se.col - this.bounds.nw.col + 1; }
+  public get height(): number { return this.bounds.se.row - this.bounds.nw.row + 1; }
+  public readonly boundsChanged$: Subject<void> = new ReplaySubject();
+  public readonly buildings: Building[] = [];
 
   private tiles: Tile[][] = [];
 
@@ -73,7 +81,8 @@ export class Grid {
 
   private resizeGrid(): void {
     if (!this.buildings.length) {
-      this.bounds = { nw: { col: 0, row: 0 }, se: { col: -1, row: -1 } };
+      this.bounds = EMPTY_BOUNDS;
+      this.boundsChanged$.next();
       this.tiles = [];
       return;
     }
@@ -87,6 +96,8 @@ export class Grid {
 
     if (!compareRegions(bounds, this.bounds)) {
       this.bounds = bounds;
+      this.boundsChanged$.next();
+
       // create new grid
       this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => new Tile()));
 

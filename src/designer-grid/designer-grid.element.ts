@@ -13,6 +13,8 @@ import { map } from 'rxjs/internal/operators/map';
 
 import { startWith } from 'rxjs/internal/operators/startWith';
 
+import { tap, mapTo } from 'rxjs/operators';
+
 import { Building, BuildingType, TYPE_ROAD, TYPE_FARM } from 'src/designer-engine/building.class';
 import { TileCoords, Region, compareCoordinates, compareRegions } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
@@ -24,6 +26,8 @@ import { snapTransition, opacityTransition, slowTransition, errorTransition, exi
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
 enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY', COPY = 'COPY' } // string values are used in css
 
+const TILES_PADDING = 4;
+
 export type CanvasCoords = { x: number, y: number };
 export type Geometry = { x: [number, number], y: [number, number], w: number, h: number, cx: number, cy: number };
 export type Geometrised<Datum> = Datum & { geo: Geometry };
@@ -34,18 +38,7 @@ function compareActions(a: Action | null, b: Action | null): boolean {
   return not(a) ? not(b) : exists(b) && a.type === b.type && a.validity === b.validity && compareRegions(a.region, b.region);
 }
 
-function computeGeometry({ nw, se }: Region, side: number): Geometry {
-  return {
-    w: (se.col - nw.col + 1) * side,
-    h: (se.row - nw.row + 1) * side,
-    cx: (se.col + nw.col + 1) * (side / 2),
-    cy: (se.row + nw.row + 1) * (side / 2),
-    x: [nw.col * side, (se.col + 1) * side],
-    y: [nw.row * side, (se.row + 1) * side],
-  };
-}
-
-export function computeLabels({ se, nw }: Region): { cols: string[], rows: string[]} {
+function computeLabels({ se, nw }: Region): { cols: string[], rows: string[]} {
   return {
     cols: range(0, se.col - nw.col + 1).map(String),
     rows: range(0, se.row - nw.row + 1).map(String),
@@ -86,6 +79,11 @@ class DesignerGrid extends HTMLElement {
   private grid: Grid = new Grid();
   private mode: ActionType = ActionType.INSPECT;
   private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
+
+  // These should be BehaviorSubjects, but can't due to a current bug in rxjs
+  // See https://github.com/ReactiveX/rxjs/issues/5105
+  private tileSide: number;
+  private hovered: TileCoords | null;
 
   private mouseCoords$: ReplaySubject<CanvasCoords> = new ReplaySubject(1);
   private revalidateAction$: ReplaySubject<null> = new ReplaySubject(1);
@@ -142,27 +140,34 @@ class DesignerGrid extends HTMLElement {
       .style('text-anchor', 'middle')
       .style('dominant-baseline', 'text-after-edge');
 
-    this.redraw();
-
-    fromEvent(window, 'resize').pipe(
-      debounceTime(50),
+    merge(
+      this.grid.boundsChanged$,
+      fromEvent(window, 'resize').pipe(debounceTime(50)),
+    ).pipe(
       untilDisconnected(this),
-    ).subscribe(() => this.redraw());
+    ).subscribe(() => {
+      this.tileSide = this.computeTileSide();
+      this.redraw();
+    });
 
     merge(
       fromEvent<MouseEvent>(this.container, 'mousemove'),
       fromEvent<MouseEvent>(this.container, 'mouseenter'),
-      fromEvent<MouseEvent>(this.container, 'mouseleave'),
     ).pipe(
       map(e => this.getCanvasCoords(e)),
       untilDisconnected(this),
     ).subscribe(this.mouseCoords$);
 
-    this.mouseCoords$.pipe(
-      map(e => this.getTileCoords(e)),
-      distinctUntilChanged(compareCoordinates),
+    merge(
+      fromEvent<MouseEvent>(this.container, 'mouseleave').pipe(mapTo(null)),
+      this.mouseCoords$.pipe(
+        map(e => this.getTileCoords(e)),
+        distinctUntilChanged(compareCoordinates),
+      ),
+    ).pipe(
+      tap(at => this.hovered = at),
       untilDisconnected(this),
-    ).subscribe(at => this.redrawHighlights(at));
+    ).subscribe(() => this.redrawHighlights());
 
     fromEvent<KeyboardEvent>(document, 'keypress').pipe(
       untilDisconnected(this),
@@ -200,7 +205,7 @@ class DesignerGrid extends HTMLElement {
       map(([e]) => this.validateAction(e)),
       distinctUntilChanged(compareActions),
       untilDisconnected(this),
-    ).subscribe(action => this.validationFeedback(action));
+    ).subscribe(action => this.feedbackAction(action));
 
     fromEvent<MouseEvent>(this.container, 'click').pipe(
       map(e => this.getCanvasCoords(e)),
@@ -219,30 +224,23 @@ class DesignerGrid extends HTMLElement {
 
   public disconnectedCallback(): void { }
 
-  private getTileCoords({ x, y }: CanvasCoords): TileCoords | null {
-    const side = this.computeTileSide();
-    return { row: Math.floor(y / side), col: Math.floor(x / side) };
-  }
-
-  // TODO: maybe extract code into separate class
   private validateAction(mouse: CanvasCoords | null): Action {
     if (this.mode === ActionType.BUILD) {
-      const side = this.computeTileSide();
       const { width: w, height: h } = this.build.rotate
         ? { width: this.build.type.height, height: this.build.type.width }
         : this.build.type;
-      const idealNW: CanvasCoords = { x: mouse.x - (w / 2) * side, y: mouse.y - (h / 2) * side };
+      const idealNW: CanvasCoords = { x: mouse.x - (w / 2) * this.tileSide, y: mouse.y - (h / 2) * this.tileSide };
       const { col, row }: TileCoords = {
-        col: Math.floor(idealNW.x / side) + +(mod(idealNW.x, side) > side / 2),
-        row: Math.floor(idealNW.y / side) + +(mod(idealNW.y, side) > side / 2),
+        col: Math.floor(idealNW.x / this.tileSide) + +(mod(idealNW.x, this.tileSide) > this.tileSide / 2),
+        row: Math.floor(idealNW.y / this.tileSide) + +(mod(idealNW.y, this.tileSide) > this.tileSide / 2),
       };
 
       const region: Region = { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
 
       return {
         type: ActionType.BUILD,
-        region,
         validity: this.grid.isFree(region, { road: this.build.type === TYPE_ROAD }) ? ActionValidity.VALID : ActionValidity.INVALID,
+        region,
       };
     }
 
@@ -250,13 +248,13 @@ class DesignerGrid extends HTMLElement {
     return { type: this.mode, validity: building ? ActionValidity.VALID : ActionValidity.UNAVAILABLE, region: building ?.region };
   }
 
-  private validationFeedback({ type, validity, region }: Action): null {
+  private feedbackAction({ type, validity, region }: Action): null {
     if (validity === ActionValidity.UNAVAILABLE) {
       opacityTransition(0, this.outline);
       return;
     }
 
-    opacityTransition(1, this.outline.datum({ geo: computeGeometry(region, this.computeTileSide()) }));
+    opacityTransition(1, this.outline.datum({ geo: this.computeGeometry(region) }));
     snapTransition(
       this.outline.attr('mode', this.mode).attr('error', validity === ActionValidity.INVALID),
     ).attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
@@ -274,7 +272,7 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
-    const amplitude = this.computeTileSide() / 4;
+    const amplitude = this.tileSide / 4;
     if (validity === ActionValidity.INVALID) {
       errorTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
       return;
@@ -289,11 +287,11 @@ class DesignerGrid extends HTMLElement {
         break;
       case ActionType.BUILD:
         this.grid.place(new Building(this.build.type), region);
-        this.redraw();
+        this.redrawBuildings();
         break;
       case ActionType.DESTROY:
         this.grid.remove(building);
-        this.redraw();
+        this.redrawBuildings();
         break;
       case ActionType.COPY:
         this.build.type = building.type;
@@ -306,7 +304,7 @@ class DesignerGrid extends HTMLElement {
   }
 
   private redraw(): void {
-    const { x, y, w, h } = computeGeometry(this.grid.bounds, this.computeTileSide());
+    const { x, y, w, h } = this.computeGeometry(this.grid.bounds);
     const { cols, rows } = computeLabels(this.grid.bounds);
 
     slowTransition(this.center)
@@ -327,14 +325,15 @@ class DesignerGrid extends HTMLElement {
       .attr('transform', `translate(${x[1]}, 0)`)
       .call(axisRight(scaleBand().domain(rows).range(y)));
 
-    this.redrawBackgrid();
+    this.redrawBackground();
     this.redrawBuildings();
+    this.redrawHighlights();
   }
 
   private computeBackgroundGeometry(): Geometry {
-    const { cx, cy } = computeGeometry(this.grid.bounds, this.computeTileSide());
-    const w = this.container.offsetWidth + 2; // 1px padding to each side
-    const h = this.container.offsetHeight + 2; // 1px padding to each side
+    const { cx, cy } = this.computeGeometry(this.grid.bounds);
+    const w = this.container.offsetWidth + 2; // 1px padding to each this.tileSide
+    const h = this.container.offsetHeight + 2; // 1px padding to each this.tileSide
 
     return {
       w,
@@ -346,24 +345,10 @@ class DesignerGrid extends HTMLElement {
     };
   }
 
-  private redrawBackgrid(): void {
-    const side = this.computeTileSide();
-    const { w, h, x, y } = this.computeBackgroundGeometry();
-
-    slowTransition(this.axes.rows)
-      .attr('transform', `translate(${x[0]}, 0)`)
-      .call(axisRight(scaleLinear().domain(y.map(d => d / side)).range(y)).ticks(h / side).tickSize(w));
-
-    slowTransition(this.axes.cols)
-      .attr('transform', `translate(0, ${y[0]})`)
-      .call(axisBottom(scaleLinear().domain(x.map(d => d / side)).range(x)).ticks(w / side).tickSize(h));
-  }
-
   private redrawBuildings(): void {
-    const side = this.computeTileSide();
     this.buildings.selectAll<SVGRectElement, Building>('g')
       .data(
-        this.grid.buildings.map(b => Object.assign(b, { geo: computeGeometry(b.region, side) })),
+        this.grid.buildings.map(b => Object.assign(b, { geo: this.computeGeometry(b.region) })),
         d => String(d.id),
       )
       .join(
@@ -385,7 +370,7 @@ class DesignerGrid extends HTMLElement {
           return g;
         },
         update => {
-          update.each(b => Object.assign(b, { geo: computeGeometry(b.region, side) }))
+          update.each(b => Object.assign(b, { geo: this.computeGeometry(b.region) }))
             .call(u => {
               slowTransition(u)
                 .attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
@@ -402,50 +387,74 @@ class DesignerGrid extends HTMLElement {
       );
   }
 
-  private redrawHighlights(at: TileCoords | null): void {
-    if (at) {
-      const side = this.computeTileSide();
-      const { w, h, x, y } = this.computeBackgroundGeometry();
+  private redrawBackground(): void {
+    const { w, h, x, y } = this.computeBackgroundGeometry();
+    slowTransition(this.axes.rows)
+      .attr('transform', `translate(${x[0]}, 0)`)
+      .call(axisRight(scaleLinear().domain(y.map(d => d / this.tileSide)).range(y)).ticks(h / this.tileSide).tickSize(w));
 
-      opacityTransition(
-        0.3,
-        this.highlights.col
-          .attr('x', at.col * side)
-          .attr('y', y[0])
-          .attr('width', side)
-          .attr('height', h),
-      );
+    slowTransition(this.axes.cols)
+      .attr('transform', `translate(0, ${y[0]})`)
+      .call(axisBottom(scaleLinear().domain(x.map(d => d / this.tileSide)).range(x)).ticks(w / this.tileSide).tickSize(h));
+  }
 
-      opacityTransition(
-        0.3,
-        this.highlights.row
-          .attr('x', x[0])
-          .attr('y', at.row * side)
-          .attr('width', w)
-          .attr('height', side),
-      );
-    } else {
+  private redrawHighlights(): void {
+    if (!this.hovered) {
       opacityTransition(0, this.highlights.col);
       opacityTransition(0, this.highlights.row);
+      return;
     }
+
+    const { w, h, x, y } = this.computeBackgroundGeometry();
+    opacityTransition(
+      0.3,
+      this.highlights.col
+        .attr('x', this.hovered.col * this.tileSide)
+        .attr('y', y[0])
+        .attr('width', this.tileSide)
+        .attr('height', h),
+    );
+
+    opacityTransition(
+      0.3,
+      this.highlights.row
+        .attr('x', x[0])
+        .attr('y', this.hovered.row * this.tileSide)
+        .attr('width', w)
+        .attr('height', this.tileSide),
+    );
+  }
+
+  private getCanvasCoords({ offsetX, offsetY }: MouseEvent): CanvasCoords {
+    const { x, y, w, h } = this.computeGeometry(this.grid.bounds);
+    return ({
+      x: offsetX + (w - this.container.offsetWidth) / 2 + x[0],
+      y: offsetY + (h - this.container.offsetHeight) / 2 + y[0],
+    });
+  }
+
+  private computeGeometry({ nw, se }: Region): Geometry {
+    return {
+      w: (se.col - nw.col + 1) * this.tileSide,
+      h: (se.row - nw.row + 1) * this.tileSide,
+      cx: (se.col + nw.col + 1) * (this.tileSide / 2),
+      cy: (se.row + nw.row + 1) * (this.tileSide / 2),
+      x: [nw.col * this.tileSide, (se.col + 1) * this.tileSide],
+      y: [nw.row * this.tileSide, (se.row + 1) * this.tileSide],
+    };
+  }
+
+  private getTileCoords({ x, y }: CanvasCoords): TileCoords | null {
+    return { row: Math.floor(y / this.tileSide), col: Math.floor(x / this.tileSide) };
   }
 
   private computeTileSide(): number {
     const width = this.container.offsetWidth;
     const height = this.container.offsetHeight;
-
-    const cols = this.grid.width + 10; // TODO: should be a constant
-    const rows = this.grid.height + 10; // TODO: should be a constant
+    const cols = this.grid.width + TILES_PADDING * 2;
+    const rows = this.grid.height + TILES_PADDING * 2;
 
     return Math.min(Math.floor(width / cols), Math.floor(height / rows));
-  }
-
-  private getCanvasCoords({ offsetX, offsetY }: MouseEvent): CanvasCoords {
-    const { x, y, w, h } = computeGeometry(this.grid.bounds, this.computeTileSide());
-    return ({
-      x: offsetX + (w - this.container.offsetWidth) / 2 + x[0],
-      y: offsetY + (h - this.container.offsetHeight) / 2 + y[0],
-    });
   }
 
 }
