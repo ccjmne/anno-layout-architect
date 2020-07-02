@@ -41,15 +41,6 @@ svg {
     &.rows {
       color: $bg-dark;
     }
-
-    &.bottom,
-    &.left,
-    &.right,
-    &.top {
-      path {
-        display: none;
-      }
-    }
   }
 
   .highlight {
@@ -59,7 +50,8 @@ svg {
   .buildings {
     rect {
       transition: fill 100ms ease-out;
-      opacity: .8;
+      stroke-width: 2;
+      opacity: .6;
     }
   }
 
@@ -72,7 +64,7 @@ svg {
     &[mode=BUILD] {
       #{--colour}: #{$colour-success};
 
-      rect {
+      rect.region-outline {
         fill-opacity: .3;
       }
     }
@@ -90,13 +82,22 @@ svg {
       #{--colour}: $colour-error;
     }
 
-    rect {
+    rect.region-outline {
       transition: stroke $duration-snap, fill $duration-snap;
       animation: breathe $duration-slow alternate infinite ease-in-out;
       stroke-width: 2px;
       stroke: var(--colour);
       fill: var(--colour);
       fill-opacity: 0;
+    }
+
+    path.text-bg {
+      transition: stroke $duration-snap, fill $duration-snap;
+      fill: var(--colour);
+    }
+
+    text {
+      fill: $bg-light;
     }
   }
 

@@ -1,7 +1,8 @@
 import { range } from 'd3-array';
 import { axisTop, axisBottom, axisLeft, axisRight } from 'd3-axis';
+import { hsl } from 'd3-color';
 import { scaleLinear, scaleBand } from 'd3-scale';
-import { select, Selection } from 'd3-selection';
+import { select, Selection, local } from 'd3-selection';
 
 import { ReplaySubject } from 'rxjs/internal/ReplaySubject';
 import { combineLatest } from 'rxjs/internal/observable/combineLatest';
@@ -23,11 +24,13 @@ import { mod } from 'src/utils/maths';
 import { not, exists } from 'src/utils/nullable';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, mergeTransforms, successTransition } from 'src/utils/transitions';
 
+const TEXT_MEASUREMENTS = local<{ w: number, h: number }>();
+
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
 enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY', COPY = 'COPY' } // string values are used in css
 
 const TILES_PADDING: number = 4;
-const SUBDIVISION_SIZE: number = 4;
+const SUBDIVISION_SIZE: number = 3;
 
 export type CanvasCoords = { x: number, y: number };
 export type Geometry = { x: [number, number], y: [number, number], w: number, h: number, cx: number, cy: number };
@@ -126,17 +129,18 @@ class DesignerGrid extends HTMLElement {
     };
 
     this.axes = {
+      rows: this.zerozero.append('g').attr('class', 'axis rows'),
+      cols: this.zerozero.append('g').attr('class', 'axis cols'),
       top: this.zerozero.append('g').attr('class', 'axis top'),
       right: this.zerozero.append('g').attr('class', 'axis right'),
       bottom: this.zerozero.append('g').attr('class', 'axis bottom'),
       left: this.zerozero.append('g').attr('class', 'axis left'),
-      rows: this.zerozero.append('g').attr('class', 'axis rows'),
-      cols: this.zerozero.append('g').attr('class', 'axis cols'),
     };
 
     this.buildings = this.zerozero.append('g').attr('class', 'buildings') as Selection<SVGGElement, Geometrised<Building>, any, any>;
     this.outline = this.zerozero.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
-    this.outline.append('rect');
+    this.outline.append('rect').attr('class', 'region-outline');
+    this.outline.append('path').attr('class', 'text-bg');
     this.outline.append('text')
       .style('text-anchor', 'middle')
       .style('dominant-baseline', 'text-after-edge');
@@ -255,17 +259,29 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
+    // drawn from bottom-center
+    function roundedTop({ w, h, radius }: { w: number, h: number, radius: number }): string {
+      return `m${-w / 2},0 v${-(h - radius)} a${radius},${radius} 0 0,1 ${radius},${-radius} h${w - 2 * radius} a${radius},${radius} 0 0,1 ${radius},${radius} v${h - radius} h${-w}`;
+    }
+
     opacityTransition(1, this.outline.datum({ geo: this.computeGeometry(region) }));
     snapTransition(
       this.outline.attr('mode', this.mode).attr('error', validity === ActionValidity.INVALID),
     ).attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
-    snapTransition(this.outline.select<SVGRectElement>('rect'))
+    snapTransition(this.outline.select<SVGRectElement>('rect.region-outline'))
       .attr('x', ({ geo: { w } }) => -w / 2)
       .attr('y', ({ geo: { h } }) => -h / 2)
       .attr('width', ({ geo: { w } }) => w)
       .attr('height', ({ geo: { h } }) => h);
-    snapTransition(this.outline.select<SVGRectElement>('text').text(type.toLowerCase()))
-      .attr('y', ({ geo: { h } }) => -h / 2);
+    snapTransition(this.outline.select<SVGRectElement>('text')
+      .text(type.toLowerCase())
+      .each(function () {
+        const { width, height } = this.getBBox();
+        TEXT_MEASUREMENTS.set(this.parentElement, { w: width + 20, h: height + 2 }); // padding: (outline.stroke-width / 2) corner-radius
+      })).attr('y', ({ geo: { h } }) => -h / 2);
+    setTimeout(() => snapTransition(this.outline.select<SVGRectElement>('path.text-bg'))
+      .attr('transform', ({ geo: { h } }) => `translate(0, ${-h / 2})`)
+      .attr('d', function () { return roundedTop({ w: TEXT_MEASUREMENTS.get(this).w, h: TEXT_MEASUREMENTS.get(this).h, radius: 10 }); }));
   }
 
   private executeAction({ validity, region }: Action): void {
@@ -315,16 +331,16 @@ class DesignerGrid extends HTMLElement {
 
     slowTransition(this.axes.top)
       .attr('transform', `translate(0, ${y[0]})`)
-      .call(axisTop(scaleBand().domain(cols).range(x)));
+      .call(axisTop(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
     slowTransition(this.axes.bottom)
       .attr('transform', `translate(0, ${y[1]})`)
-      .call(axisBottom(scaleBand().domain(cols).range(x)));
+      .call(axisBottom(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
     slowTransition(this.axes.left)
       .attr('transform', `translate(${x[0]}, 0)`)
-      .call(axisLeft(scaleBand().domain(rows).range(y)));
+      .call(axisLeft(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
     slowTransition(this.axes.right)
       .attr('transform', `translate(${x[1]}, 0)`)
-      .call(axisRight(scaleBand().domain(rows).range(y)));
+      .call(axisRight(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
 
     this.redrawBackground();
     this.redrawBuildings();
@@ -361,7 +377,8 @@ class DesignerGrid extends HTMLElement {
             .attr('y', ({ geo: { h } }) => -h / 2)
             .attr('width', ({ geo: { w } }) => w)
             .attr('height', ({ geo: { h } }) => h)
-            .attr('fill', d => d.type.colour.hex());
+            .attr('fill', d => d.type.colour.hex())
+            .attr('stroke', d => hsl(d.type.colour.hex()).darker(1.5).hex());
           g.append('text')
             .style('text-anchor', 'middle')
             .style('dominant-baseline', 'middle')
