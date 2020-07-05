@@ -25,6 +25,8 @@ import { mod } from 'src/utils/maths';
 import { not, exists } from 'src/utils/nullable';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, mergeTransforms, successTransition } from 'src/utils/transitions';
 
+import { Geometrised, LocalCoords, CoordinatesSystem } from './coordinates-system';
+
 const TEXT_MEASUREMENTS = local<{ w: number, h: number }>();
 
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
@@ -37,12 +39,7 @@ enum ActionType { // string values are referenced in css
   MOVE_COMPLETE = 'MOVE_COMPLETE',
 }
 
-const TILES_PADDING: number = 4;
 const SUBDIVISION_SIZE: number = 3;
-
-export type CanvasCoords = { x: number, y: number };
-export type Geometry = { x: [number, number], y: [number, number], w: number, h: number, cx: number, cy: number };
-export type Geometrised<Datum> = Datum & { geo: Geometry };
 
 type Action = { type: ActionType, validity: ActionValidity, region: Region | null, building?: Building };
 
@@ -102,14 +99,15 @@ class DesignerGrid extends HTMLElement {
 
   // These should be BehaviorSubjects, but can't due to a current bug in rxjs
   // See https://github.com/ReactiveX/rxjs/issues/5105
-  private tileSide: number;
   private hovered: TileCoords | null;
 
   // Cursor Observables
-  private revalidate$: Subject<null> = new Subject();
-  private move$: Observable<CanvasCoords>;
-  private click$: Observable<CanvasCoords>;
-  private dragstart$: Observable<CanvasCoords>;
+  private readonly revalidate$: Subject<null> = new Subject();
+  private move$: Observable<LocalCoords>;
+  private click$: Observable<LocalCoords>;
+  private dragstart$: Observable<LocalCoords>;
+
+  private readonly coords: CoordinatesSystem = new CoordinatesSystem();
 
   constructor() {
     super();
@@ -168,17 +166,17 @@ class DesignerGrid extends HTMLElement {
 
     fromEvent<DragEvent>(this.container, 'dragstart').pipe(
       tap(e => e.preventDefault()),
-      map(e => this.getCanvasCoords(e)),
+      map(e => this.coords.toLocalCoords(e)),
       untilDisconnected(this),
     ).subscribe(this.dragstart$ = new Subject());
 
     fromEvent<MouseEvent>(this.container, 'click').pipe(
-      map(e => this.getCanvasCoords(e)),
+      map(e => this.coords.toLocalCoords(e)),
       untilDisconnected(this),
     ).subscribe(this.click$ = new Subject());
 
     fromEvent<MouseEvent>(this.container, 'mousemove').pipe(
-      map(e => this.getCanvasCoords(e)),
+      map(e => this.coords.toLocalCoords(e)),
       untilDisconnected(this),
     ).subscribe(this.move$ = new Subject());
 
@@ -188,7 +186,8 @@ class DesignerGrid extends HTMLElement {
     ).pipe(
       untilDisconnected(this),
     ).subscribe(() => {
-      this.tileSide = this.computeTileSide();
+      this.coords.updateGridBounds(this.grid.bounds);
+      this.coords.updateContainerSize(this.container);
       this.redraw();
     });
 
@@ -234,7 +233,7 @@ class DesignerGrid extends HTMLElement {
     });
 
     merge(
-      this.move$.pipe(map(xy => this.getTileCoords(xy))),
+      this.move$.pipe(map(xy => this.coords.toTileCoords(xy))),
       fromEvent<MouseEvent>(this.container, 'mouseleave').pipe(mapTo(null)),
     ).pipe(
       distinctUntilChanged(compareTileCoords),
@@ -258,7 +257,7 @@ class DesignerGrid extends HTMLElement {
 
     this.dragstart$.pipe(
       filter(() => this.mode === ActionType.INSPECT || this.mode === ActionType.MOVE_PICK),
-      map(xy => this.grid.buildingAt(this.getTileCoords(xy))),
+      map(xy => this.grid.buildingAt(this.coords.toTileCoords(xy))),
       filter(building => !!building),
       untilDisconnected(this),
     ).subscribe(building => {
@@ -280,12 +279,12 @@ class DesignerGrid extends HTMLElement {
     this.revalidate$.next();
   }
 
-  private validateAction(xy: CanvasCoords): Action {
+  private validateAction(xy: LocalCoords): Action {
     const snapToGrid = ({ width: w, height: h }: {width: number, height: number}) => {
-      const idealNW: CanvasCoords = { x: xy.x - (w / 2) * this.tileSide, y: xy.y - (h / 2) * this.tileSide };
+      const idealNW: LocalCoords = { x: xy.x - (w / 2) * this.coords.tileSide, y: xy.y - (h / 2) * this.coords.tileSide };
       const { col, row }: TileCoords = {
-        col: Math.floor(idealNW.x / this.tileSide) + +(mod(idealNW.x, this.tileSide) > this.tileSide / 2),
-        row: Math.floor(idealNW.y / this.tileSide) + +(mod(idealNW.y, this.tileSide) > this.tileSide / 2),
+        col: Math.floor(idealNW.x / this.coords.tileSide) + +(mod(idealNW.x, this.coords.tileSide) > this.coords.tileSide / 2),
+        row: Math.floor(idealNW.y / this.coords.tileSide) + +(mod(idealNW.y, this.coords.tileSide) > this.coords.tileSide / 2),
       };
 
       return { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
@@ -311,7 +310,7 @@ class DesignerGrid extends HTMLElement {
       };
     }
 
-    const building = this.grid.buildingAt(this.getTileCoords(xy));
+    const building = this.grid.buildingAt(this.coords.toTileCoords(xy));
     return { type: this.mode, validity: building ? ActionValidity.VALID : ActionValidity.UNAVAILABLE, region: building ?.region, building };
   }
 
@@ -326,7 +325,7 @@ class DesignerGrid extends HTMLElement {
       return `m${-w / 2},0 v${-(h - radius)} a${radius},${radius} 0 0,1 ${radius},${-radius} h${w - 2 * radius} a${radius},${radius} 0 0,1 ${radius},${radius} v${h - radius} h${-w}`;
     }
 
-    opacityTransition(1, this.outline.datum({ geo: this.computeGeometry(region) }));
+    opacityTransition(1, this.outline.datum({ geo: this.coords.computeGeometry(region) }));
     snapTransition(
       this.outline.attr('mode', this.mode).attr('error', validity === ActionValidity.INVALID),
     ).attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
@@ -351,7 +350,7 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
-    const amplitude = this.tileSide / 4;
+    const amplitude = this.coords.tileSide / 4;
     if (validity === ActionValidity.INVALID) {
       errorTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
       return;
@@ -392,7 +391,7 @@ class DesignerGrid extends HTMLElement {
   }
 
   private redraw(): void {
-    const { x, y, w, h } = this.computeGeometry(this.grid.bounds);
+    const { x, y, w, h } = this.coords.computeGeometry(this.grid.bounds);
     const { cols, rows } = computeLabels(this.grid.bounds);
 
     slowTransition(this.center)
@@ -402,41 +401,26 @@ class DesignerGrid extends HTMLElement {
 
     slowTransition(this.axes.top)
       .attr('transform', `translate(0, ${y[0]})`)
-      .call(axisTop(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
+      .call(axisTop(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
     slowTransition(this.axes.bottom)
       .attr('transform', `translate(0, ${y[1]})`)
-      .call(axisBottom(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
+      .call(axisBottom(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
     slowTransition(this.axes.left)
       .attr('transform', `translate(${x[0]}, 0)`)
-      .call(axisLeft(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
+      .call(axisLeft(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
     slowTransition(this.axes.right)
       .attr('transform', `translate(${x[1]}, 0)`)
-      .call(axisRight(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.tileSide / 4));
+      .call(axisRight(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
 
     this.redrawBackground();
     this.redrawBuildings();
     this.redrawHighlights();
   }
 
-  private computeBackgroundGeometry(): Geometry {
-    const { cx, cy } = this.computeGeometry(this.grid.bounds);
-    const w = this.container.offsetWidth + 2; // 1px padding to each side
-    const h = this.container.offsetHeight + 2; // 1px padding to each side
-
-    return {
-      w,
-      h,
-      cx,
-      cy,
-      x: [-w / 2 + cx, w / 2 + cx],
-      y: [-h / 2 + cy, h / 2 + cy],
-    };
-  }
-
   private redrawBuildings(): void {
     this.buildings.selectAll<SVGRectElement, Building>('g')
       .data(
-        [...this.grid.buildings].map(b => Object.assign(b, { geo: this.computeGeometry(b.region) })),
+        [...this.grid.buildings].map(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })),
         d => String(d.id),
       )
       .join(
@@ -459,7 +443,7 @@ class DesignerGrid extends HTMLElement {
           return g;
         },
         update => {
-          update.each(b => Object.assign(b, { geo: this.computeGeometry(b.region) }))
+          update.each(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) }))
             .call(u => {
               slowTransition(u)
                 .attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
@@ -477,16 +461,16 @@ class DesignerGrid extends HTMLElement {
   }
 
   private redrawBackground(): void {
-    const { w, h, x, y } = this.computeBackgroundGeometry();
+    const { w, h, x, y } = this.coords.background;
     slowTransition(this.axes.rows)
       .attr('transform', `translate(${x[0]}, 0)`)
-      .call(axisRight(scaleLinear().domain(y.map(d => d / this.tileSide)).range(y)).ticks(h / this.tileSide).tickSize(w));
+      .call(axisRight(scaleLinear().domain(y.map(d => d / this.coords.tileSide)).range(y)).ticks(h / this.coords.tileSide).tickSize(w));
     this.axes.rows.selectAll<SVGLineElement, number>('g.tick line')
       .style('stroke-width', d => (mod(d, SUBDIVISION_SIZE) ? 1 : 2));
 
     slowTransition(this.axes.cols)
       .attr('transform', `translate(0, ${y[0]})`)
-      .call(axisBottom(scaleLinear().domain(x.map(d => d / this.tileSide)).range(x)).ticks(w / this.tileSide).tickSize(h));
+      .call(axisBottom(scaleLinear().domain(x.map(d => d / this.coords.tileSide)).range(x)).ticks(w / this.coords.tileSide).tickSize(h));
     this.axes.cols.selectAll<SVGLineElement, number>('g.tick line')
       .style('stroke-width', d => (mod(d, SUBDIVISION_SIZE) ? 1 : 2));
   }
@@ -498,13 +482,13 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
-    const { w, h, x, y } = this.computeBackgroundGeometry();
+    const { w, h, x, y } = this.coords.background;
     opacityTransition(
       0.3,
       this.highlights.col
-        .attr('x', this.hovered.col * this.tileSide)
+        .attr('x', this.hovered.col * this.coords.tileSide)
         .attr('y', y[0])
-        .attr('width', this.tileSide)
+        .attr('width', this.coords.tileSide)
         .attr('height', h),
     );
 
@@ -512,42 +496,10 @@ class DesignerGrid extends HTMLElement {
       0.3,
       this.highlights.row
         .attr('x', x[0])
-        .attr('y', this.hovered.row * this.tileSide)
+        .attr('y', this.hovered.row * this.coords.tileSide)
         .attr('width', w)
-        .attr('height', this.tileSide),
+        .attr('height', this.coords.tileSide),
     );
-  }
-
-  private getCanvasCoords({ offsetX, offsetY }: MouseEvent): CanvasCoords {
-    const { x, y, w, h } = this.computeGeometry(this.grid.bounds);
-    return ({
-      x: offsetX + (w - this.container.offsetWidth) / 2 + x[0],
-      y: offsetY + (h - this.container.offsetHeight) / 2 + y[0],
-    });
-  }
-
-  private computeGeometry({ nw, se }: Region): Geometry {
-    return {
-      w: (se.col - nw.col + 1) * this.tileSide,
-      h: (se.row - nw.row + 1) * this.tileSide,
-      cx: (se.col + nw.col + 1) * (this.tileSide / 2),
-      cy: (se.row + nw.row + 1) * (this.tileSide / 2),
-      x: [nw.col * this.tileSide, (se.col + 1) * this.tileSide],
-      y: [nw.row * this.tileSide, (se.row + 1) * this.tileSide],
-    };
-  }
-
-  private getTileCoords({ x, y }: CanvasCoords): TileCoords | null {
-    return { row: Math.floor(y / this.tileSide), col: Math.floor(x / this.tileSide) };
-  }
-
-  private computeTileSide(): number {
-    const width = this.container.offsetWidth;
-    const height = this.container.offsetHeight;
-    const cols = this.grid.width + TILES_PADDING * 2;
-    const rows = this.grid.height + TILES_PADDING * 2;
-
-    return Math.min(Math.floor(width / cols), Math.floor(height / rows));
   }
 
 }

@@ -31,7 +31,7 @@ export class Grid {
 
   public get width(): number { return this.bounds.se.col - this.bounds.nw.col + 1; }
   public get height(): number { return this.bounds.se.row - this.bounds.nw.row + 1; }
-  public readonly boundsChanged$: Subject<void> = new ReplaySubject();
+  public readonly boundsChanged$: Subject<Region> = new ReplaySubject();
   public readonly buildings: Set<Building> = new Set();
 
   private tiles: Tile[][] = [];
@@ -85,8 +85,7 @@ export class Grid {
 
   private resizeGrid(): void {
     if (!this.buildings.size) {
-      this.bounds = EMPTY_BOUNDS;
-      this.boundsChanged$.next();
+      this.boundsChanged$.next(this.bounds = EMPTY_BOUNDS);
       this.tiles = [];
       return;
     }
@@ -99,8 +98,7 @@ export class Grid {
     }), { nw: { col: Infinity, row: Infinity }, se: { col: -Infinity, row: -Infinity } } as Region);
 
     if (!compareRegions(bounds, this.bounds)) {
-      this.bounds = bounds;
-      this.boundsChanged$.next();
+      this.boundsChanged$.next(this.bounds = bounds);
 
       // create new grid
       this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => new Tile()));

@@ -2,7 +2,7 @@ import { easeExpOut, easeLinear } from 'd3-ease';
 import { Selection, select } from 'd3-selection';
 import 'd3-transition';
 
-import { Geometrised } from 'src/designer-grid/designer-grid.element';
+import { Geometrised } from 'src/designer-grid/coordinates-system';
 
 import { randomInt } from './maths';
 
