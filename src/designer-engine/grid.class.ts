@@ -58,7 +58,7 @@ export class Grid {
    * @return        `true` if the region is building-free.
    */
   public isFree(region: Region, opts?: { road?: boolean, ignore?: Building }): boolean {
-    return this.buildingsIn(region, (opts?.road ? [TYPE_ROAD] : []), opts?.ignore).size === 0;
+    return this.buildingsIn(region, (opts ?.road ? [TYPE_ROAD] : []), opts ?.ignore).size === 0;
   }
 
   public place(building: Building, region: Region): void {

@@ -9,7 +9,6 @@ import { Subject } from 'rxjs/internal/Subject';
 import { combineLatest } from 'rxjs/internal/observable/combineLatest';
 import { fromEvent } from 'rxjs/internal/observable/fromEvent';
 import { merge } from 'rxjs/internal/observable/merge';
-import { debounceTime } from 'rxjs/internal/operators/debounceTime';
 import { distinctUntilChanged } from 'rxjs/internal/operators/distinctUntilChanged';
 import { map } from 'rxjs/internal/operators/map';
 
@@ -47,7 +46,7 @@ function compareActions(a: Action | null, b: Action | null): boolean {
   return not(a) ? not(b) : exists(b) && a.type === b.type && a.validity === b.validity && compareRegions(a.region, b.region);
 }
 
-function computeLabels({ se, nw }: Region): { cols: string[], rows: string[]} {
+function computeLabels({ se, nw }: Region): { cols: string[], rows: string[] } {
   // // absolute mode
   // return {
   //   cols: range(nw.col, se.col + 1).map(String),
@@ -92,10 +91,13 @@ class DesignerGrid extends HTMLElement {
   }
 
   // Engine model
-  private grid: Grid = new Grid();
+  private readonly grid: Grid = new Grid();
   private mode: ActionType = ActionType.INSPECT;
   private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
-  private readonly move: {building: Building| null} = { building: null };
+  private readonly move: { building: Building | null } = { building: null };
+
+  // Helper classes
+  private readonly coords: CoordinatesSystem = new CoordinatesSystem();
 
   // These should be BehaviorSubjects, but can't due to a current bug in rxjs
   // See https://github.com/ReactiveX/rxjs/issues/5105
@@ -106,8 +108,6 @@ class DesignerGrid extends HTMLElement {
   private move$: Observable<LocalCoords>;
   private click$: Observable<LocalCoords>;
   private dragstart$: Observable<LocalCoords>;
-
-  private readonly coords: CoordinatesSystem = new CoordinatesSystem();
 
   constructor() {
     super();
@@ -164,6 +164,25 @@ class DesignerGrid extends HTMLElement {
 
     this.container.setAttribute('draggable', 'true');
 
+    this.grid.boundsChanged$.pipe(
+      untilDisconnected(this),
+    ).subscribe(bounds => this.coords.updateGridBounds(bounds));
+
+    fromEvent(window, 'resize').pipe(
+      startWith(null),
+      untilDisconnected(this),
+    ).subscribe(() => this.coords.updateContainerSize(this.container));
+
+    this.coords.systemUpdate$.pipe(
+      untilDisconnected(this),
+    ).subscribe(() => this.recenter());
+
+    fromEvent<MouseEvent>(this.container, 'mousemove').pipe(
+      map(e => this.coords.toTileCoords(e)),
+      distinctUntilChanged(compareTileCoords),
+      untilDisconnected(this),
+    ).subscribe(() => this.coords.notifyActivity());
+
     fromEvent<DragEvent>(this.container, 'dragstart').pipe(
       tap(e => e.preventDefault()),
       map(e => this.coords.toLocalCoords(e)),
@@ -175,21 +194,13 @@ class DesignerGrid extends HTMLElement {
       untilDisconnected(this),
     ).subscribe(this.click$ = new Subject());
 
-    fromEvent<MouseEvent>(this.container, 'mousemove').pipe(
-      map(e => this.coords.toLocalCoords(e)),
+    combineLatest([
+      fromEvent<MouseEvent>(this.container, 'mousemove'),
+      this.revalidate$.pipe(startWith(null)),
+    ]).pipe(
+      map(([e]) => this.coords.toLocalCoords(e)),
       untilDisconnected(this),
     ).subscribe(this.move$ = new Subject());
-
-    merge(
-      this.grid.boundsChanged$,
-      fromEvent(window, 'resize').pipe(debounceTime(50)),
-    ).pipe(
-      untilDisconnected(this),
-    ).subscribe(() => {
-      this.coords.updateGridBounds(this.grid.bounds);
-      this.coords.updateContainerSize(this.container);
-      this.redraw();
-    });
 
     this.listen();
   }
@@ -224,6 +235,7 @@ class DesignerGrid extends HTMLElement {
           this.build.type = TYPE_ROAD;
           break;
         case 'escape':
+          this.coords.updateNow();
           this.mode = ActionType.INSPECT;
           break;
         default: return;
@@ -241,11 +253,8 @@ class DesignerGrid extends HTMLElement {
       untilDisconnected(this),
     ).subscribe(() => this.redrawHighlights());
 
-    combineLatest([
-      this.move$,
-      this.revalidate$.pipe(startWith(null)),
-    ]).pipe(
-      map(([xy]) => this.validateAction(xy)),
+    this.move$.pipe(
+      map(xy => this.validateAction(xy)),
       distinctUntilChanged(compareActions),
       untilDisconnected(this),
     ).subscribe(action => this.feedbackAction(action));
@@ -270,6 +279,7 @@ class DesignerGrid extends HTMLElement {
       tap(e => e.preventDefault()),
       untilDisconnected(this),
     ).subscribe(() => {
+      this.coords.updateNow();
       this.mode = ActionType.INSPECT;
       this.revalidate();
     });
@@ -280,7 +290,7 @@ class DesignerGrid extends HTMLElement {
   }
 
   private validateAction(xy: LocalCoords): Action {
-    const snapToGrid = ({ width: w, height: h }: {width: number, height: number}) => {
+    const snapToGrid = ({ width: w, height: h }: { width: number, height: number }) => {
       const idealNW: LocalCoords = { x: xy.x - (w / 2) * this.coords.tileSide, y: xy.y - (h / 2) * this.coords.tileSide };
       const { col, row }: TileCoords = {
         col: Math.floor(idealNW.x / this.coords.tileSide) + +(mod(idealNW.x, this.coords.tileSide) > this.coords.tileSide / 2),
@@ -390,15 +400,23 @@ class DesignerGrid extends HTMLElement {
     this.revalidate();
   }
 
-  private redraw(): void {
+  private recenter(): void {
     const { x, y, w, h } = this.coords.computeGeometry(this.grid.bounds);
-    const { cols, rows } = computeLabels(this.grid.bounds);
 
     slowTransition(this.center)
       .attr('transform', `translate(${this.container.offsetWidth / 2}, ${this.container.offsetHeight / 2})`);
     slowTransition(this.zerozero)
       .attr('transform', `translate(${-(w / 2 + x[0])}, ${-(h / 2 + y[0])})`);
 
+    this.redrawBackground();
+    this.redrawBuildings();
+    this.redrawHighlights();
+    this.revalidate();
+  }
+
+  private redrawBuildings(): void {
+    const { x, y } = this.coords.computeGeometry(this.grid.bounds);
+    const { cols, rows } = computeLabels(this.grid.bounds);
     slowTransition(this.axes.top)
       .attr('transform', `translate(0, ${y[0]})`)
       .call(axisTop(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
@@ -412,12 +430,6 @@ class DesignerGrid extends HTMLElement {
       .attr('transform', `translate(${x[1]}, 0)`)
       .call(axisRight(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
 
-    this.redrawBackground();
-    this.redrawBuildings();
-    this.redrawHighlights();
-  }
-
-  private redrawBuildings(): void {
     this.buildings.selectAll<SVGRectElement, Building>('g')
       .data(
         [...this.grid.buildings].map(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })),
