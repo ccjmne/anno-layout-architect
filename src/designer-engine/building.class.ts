@@ -1,12 +1,16 @@
 import { color, Color } from 'd3-color';
 
 import { Region } from './definitions';
-import { Grid } from './grid.class';
 
 export const TYPE_FARM: BuildingType = { colour: color('darkorange'), name: 'Farm', width: 3, height: 2 };
 export const TYPE_ROAD: BuildingType = { colour: color('grey'), name: '', width: 1, height: 1 };
 
 let SEQ = 0;
+
+export enum ORIENTATION {
+  HORIZONTAL,
+  VERTICAL,
+}
 
 export type BuildingType = {
   name: string;
@@ -20,6 +24,14 @@ export class Building {
   public readonly id: number;
   public type!: BuildingType;
   public region: Region | null = null;
+
+  // TODO: return type should be ORIENTATION
+  // TODO: should be actual property
+  // TODO: actually, grid should take a BuildingType and ORIENTATION, 'region' should only be computed on request, through a getter perhaps.
+
+  public get orientation(): boolean {
+    return this.region && (this.region.se.col - this.region.nw.col + 1) < this.region.se.row - this.region.nw.row + 1;
+  }
 
   public parent?: Building;
   public children: Array<Building> = [];
@@ -36,12 +48,6 @@ export class Building {
 
   public moveTo(region: Region): void {
     this.region = region;
-  }
-
-  public removeFrom(grid: Grid): void {
-    this.children.forEach(c => c.removeFrom(grid));
-    this.children.splice(0, this.children.length);
-    grid.buildings.splice(grid.buildings.indexOf(this), 1);
   }
 
 }

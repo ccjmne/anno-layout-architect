@@ -32,7 +32,7 @@ export class Grid {
   public get width(): number { return this.bounds.se.col - this.bounds.nw.col + 1; }
   public get height(): number { return this.bounds.se.row - this.bounds.nw.row + 1; }
   public readonly boundsChanged$: Subject<void> = new ReplaySubject();
-  public readonly buildings: Building[] = [];
+  public readonly buildings: Set<Building> = new Set();
 
   private tiles: Tile[][] = [];
 
@@ -41,53 +41,57 @@ export class Grid {
   }
 
   public buildingAt(at: TileCoords): Building | null {
-    const localAt = this.translateToInternalCoords(at);
-    return this.tiles[localAt.row] && this.tiles[localAt.row][localAt.col] ?.building;
+    const internalAt = this.translateToInternalCoords(at);
+    return this.tiles[internalAt.row] && this.tiles[internalAt.row][internalAt.col] ?.building;
   }
 
-  public buildingsIn(region?: Region, ...ignore: BuildingType[]): Set<Building> {
-    if (!region) {
-      return new Set(this.buildings.filter(({ type }) => !ignore.includes(type)));
-    }
-
+  public buildingsIn(region: Region, ignore: BuildingType[], ignoreSpecific?: Building): Set<Building> {
     return new Set(
-      this.tilesIn(region).filter(({ building }) => building && !ignore.includes(building.type)).map(({ building }) => building),
+      this.tilesIn(region).map(({ building }) => building).filter(b => b && b !== ignoreSpecific && !ignore.includes(b.type)),
     );
   }
 
   /**
    * Check whether the region is free of any buildings.
-   * @param  opts   If opts.road is truthy, the region may contain road tiles
+   * @param  opts   If opts.road is truthy, the region may contain road tiles.
+   *                Use opts.ignore to allow moving a building.
    * @return        `true` if the region is building-free.
    */
-  public isFree(region: Region, opts?: { road?: boolean }): boolean {
-    return this.buildingsIn(region, ...(opts?.road ? [TYPE_ROAD] : [])).size === 0;
+  public isFree(region: Region, opts?: { road?: boolean, ignore?: Building }): boolean {
+    return this.buildingsIn(region, (opts?.road ? [TYPE_ROAD] : []), opts?.ignore).size === 0;
   }
 
   public place(building: Building, region: Region): void {
-    if (this.isFree(region)) {
+    if (this.isFree(region, { ignore: building })) {
+      if (building.region) {
+        this.tilesIn(building.region).forEach(t => t.unlink()); // mini-remove that preserves children
+      }
+
       building.moveTo(region);
-      this.buildings.push(building);
+      this.buildings.add(building);
       this.tilesIn(building.region).forEach(t => t.link(building));
       this.resizeGrid();
     }
   }
 
   public remove(building: Building): void {
-    this.tilesIn(building.region).forEach(t => t.unlink());
-    this.buildings.splice(this.buildings.indexOf(building), 1);
+    [...building.children, building].forEach(b => {
+      this.tilesIn(b.region).forEach(t => t.unlink());
+      this.buildings.delete(b);
+    });
+
     this.resizeGrid();
   }
 
   private resizeGrid(): void {
-    if (!this.buildings.length) {
+    if (!this.buildings.size) {
       this.bounds = EMPTY_BOUNDS;
       this.boundsChanged$.next();
       this.tiles = [];
       return;
     }
 
-    const bounds = this.buildings.reduce((
+    const bounds = [...this.buildings.values()].reduce((
       { nw: { col: nwX1, row: nwY1 }, se: { col: seX1, row: seY1 } },
       { region: { nw: { col: nwX2, row: nwY2 }, se: { col: seX2, row: seY2 } } },
     ) => ({

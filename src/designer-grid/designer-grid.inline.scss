@@ -1,10 +1,10 @@
 @keyframes breathe {
   0% {
-    stroke-width: 2px;
+    stroke-width: 2cpx;
   }
 
   100% {
-    stroke-width: 3px;
+    stroke-width: 4px;
   }
 }
 
@@ -61,7 +61,7 @@ svg {
 
     &[mode=INSPECT] {}
 
-    &[mode=BUILD] {
+    &[mode=BUILD], &[mode=MOVE_COMPLETE] {
       #{--colour}: #{$colour-success};
 
       rect.region-outline {
@@ -73,7 +73,7 @@ svg {
       #{--colour}: $colour-error;
     }
 
-    &[mode=COPY] {
+    &[mode=COPY], &[mode=MOVE_PICK] {
       #{--colour}: #{$colour-success};
     }
 

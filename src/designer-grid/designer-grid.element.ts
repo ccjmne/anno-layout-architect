@@ -4,7 +4,8 @@ import { hsl } from 'd3-color';
 import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection, local } from 'd3-selection';
 
-import { ReplaySubject } from 'rxjs/internal/ReplaySubject';
+import { Observable } from 'rxjs/internal/Observable';
+import { Subject } from 'rxjs/internal/Subject';
 import { combineLatest } from 'rxjs/internal/observable/combineLatest';
 import { fromEvent } from 'rxjs/internal/observable/fromEvent';
 import { merge } from 'rxjs/internal/observable/merge';
@@ -14,10 +15,10 @@ import { map } from 'rxjs/internal/operators/map';
 
 import { startWith } from 'rxjs/internal/operators/startWith';
 
-import { tap, mapTo } from 'rxjs/operators';
+import { filter, tap, mapTo } from 'rxjs/operators';
 
 import { Building, BuildingType, TYPE_ROAD, TYPE_FARM } from 'src/designer-engine/building.class';
-import { TileCoords, Region, compareCoordinates, compareRegions } from 'src/designer-engine/definitions';
+import { TileCoords, Region, compareRegions, compareTileCoords } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
@@ -27,7 +28,14 @@ import { snapTransition, opacityTransition, slowTransition, errorTransition, exi
 const TEXT_MEASUREMENTS = local<{ w: number, h: number }>();
 
 enum ActionValidity { VALID, INVALID, UNAVAILABLE }
-enum ActionType { INSPECT = 'INSPECT', BUILD = 'BUILD', DESTROY = 'DESTROY', COPY = 'COPY' } // string values are used in css
+enum ActionType { // string values are referenced in css
+  INSPECT = 'INSPECT',
+  BUILD = 'BUILD',
+  DESTROY = 'DESTROY',
+  COPY = 'COPY',
+  MOVE_PICK = 'MOVE_PICK',
+  MOVE_COMPLETE = 'MOVE_COMPLETE',
+}
 
 const TILES_PADDING: number = 4;
 const SUBDIVISION_SIZE: number = 3;
@@ -36,16 +44,23 @@ export type CanvasCoords = { x: number, y: number };
 export type Geometry = { x: [number, number], y: [number, number], w: number, h: number, cx: number, cy: number };
 export type Geometrised<Datum> = Datum & { geo: Geometry };
 
-type Action = { type: ActionType, validity: ActionValidity, region: Region | null };
+type Action = { type: ActionType, validity: ActionValidity, region: Region | null, building?: Building };
 
 function compareActions(a: Action | null, b: Action | null): boolean {
   return not(a) ? not(b) : exists(b) && a.type === b.type && a.validity === b.validity && compareRegions(a.region, b.region);
 }
 
 function computeLabels({ se, nw }: Region): { cols: string[], rows: string[]} {
+  // // absolute mode
+  // return {
+  //   cols: range(nw.col, se.col + 1).map(String),
+  //   rows: range(nw.row, se.row + 1).map(String),
+  // };
+
+  // relative mode, 1-based
   return {
-    cols: range(0, se.col - nw.col + 1).map(String),
-    rows: range(0, se.row - nw.row + 1).map(String),
+    cols: range(1, se.col - nw.col + 2).map(String),
+    rows: range(1, se.row - nw.row + 2).map(String),
   };
 }
 
@@ -83,14 +98,18 @@ class DesignerGrid extends HTMLElement {
   private grid: Grid = new Grid();
   private mode: ActionType = ActionType.INSPECT;
   private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
+  private readonly move: {building: Building| null} = { building: null };
 
   // These should be BehaviorSubjects, but can't due to a current bug in rxjs
   // See https://github.com/ReactiveX/rxjs/issues/5105
   private tileSide: number;
   private hovered: TileCoords | null;
 
-  private mouseCoords$: ReplaySubject<CanvasCoords> = new ReplaySubject(1);
-  private revalidateAction$: ReplaySubject<null> = new ReplaySubject(1);
+  // Cursor Observables
+  private revalidate$: Subject<null> = new Subject();
+  private move$: Observable<CanvasCoords>;
+  private click$: Observable<CanvasCoords>;
+  private dragstart$: Observable<CanvasCoords>;
 
   constructor() {
     super();
@@ -145,6 +164,24 @@ class DesignerGrid extends HTMLElement {
       .style('text-anchor', 'middle')
       .style('dominant-baseline', 'text-after-edge');
 
+    this.container.setAttribute('draggable', 'true');
+
+    fromEvent<DragEvent>(this.container, 'dragstart').pipe(
+      tap(e => e.preventDefault()),
+      map(e => this.getCanvasCoords(e)),
+      untilDisconnected(this),
+    ).subscribe(this.dragstart$ = new Subject());
+
+    fromEvent<MouseEvent>(this.container, 'click').pipe(
+      map(e => this.getCanvasCoords(e)),
+      untilDisconnected(this),
+    ).subscribe(this.click$ = new Subject());
+
+    fromEvent<MouseEvent>(this.container, 'mousemove').pipe(
+      map(e => this.getCanvasCoords(e)),
+      untilDisconnected(this),
+    ).subscribe(this.move$ = new Subject());
+
     merge(
       this.grid.boundsChanged$,
       fromEvent(window, 'resize').pipe(debounceTime(50)),
@@ -155,26 +192,13 @@ class DesignerGrid extends HTMLElement {
       this.redraw();
     });
 
-    merge(
-      fromEvent<MouseEvent>(this.container, 'mousemove'),
-      fromEvent<MouseEvent>(this.container, 'mouseenter'),
-    ).pipe(
-      map(e => this.getCanvasCoords(e)),
-      untilDisconnected(this),
-    ).subscribe(this.mouseCoords$);
+    this.listen();
+  }
 
-    merge(
-      fromEvent<MouseEvent>(this.container, 'mouseleave').pipe(mapTo(null)),
-      this.mouseCoords$.pipe(
-        map(e => this.getTileCoords(e)),
-        distinctUntilChanged(compareCoordinates),
-      ),
-    ).pipe(
-      tap(at => this.hovered = at),
-      untilDisconnected(this),
-    ).subscribe(() => this.redrawHighlights());
+  public disconnectedCallback(): void { }
 
-    fromEvent<KeyboardEvent>(document, 'keypress').pipe(
+  private listen(): void {
+    fromEvent<KeyboardEvent>(this.getRootNode(), 'keydown').pipe(
       untilDisconnected(this),
     ).subscribe(({ key }) => {
       switch (key.toLowerCase()) {
@@ -193,55 +217,82 @@ class DesignerGrid extends HTMLElement {
         case 'd':
           this.mode = ActionType.DESTROY;
           break;
+        case 'm':
+          this.mode = ActionType.MOVE_PICK;
+          break;
         case 's':
           this.mode = ActionType.BUILD;
           this.build.type = TYPE_ROAD;
           break;
+        case 'escape':
+          this.mode = ActionType.INSPECT;
+          break;
         default: return;
       }
 
-      this.revalidateAction$.next(null);
+      this.revalidate();
     });
 
+    merge(
+      this.move$.pipe(map(xy => this.getTileCoords(xy))),
+      fromEvent<MouseEvent>(this.container, 'mouseleave').pipe(mapTo(null)),
+    ).pipe(
+      distinctUntilChanged(compareTileCoords),
+      tap(at => this.hovered = at),
+      untilDisconnected(this),
+    ).subscribe(() => this.redrawHighlights());
+
     combineLatest([
-      this.mouseCoords$,
-      this.revalidateAction$.pipe(startWith(null)),
+      this.move$,
+      this.revalidate$.pipe(startWith(null)),
     ]).pipe(
-      map(([e]) => this.validateAction(e)),
+      map(([xy]) => this.validateAction(xy)),
       distinctUntilChanged(compareActions),
       untilDisconnected(this),
     ).subscribe(action => this.feedbackAction(action));
 
-    fromEvent<MouseEvent>(this.container, 'click').pipe(
-      map(e => this.getCanvasCoords(e)),
-      map(e => this.validateAction(e)),
+    this.click$.pipe(
+      map(xy => this.validateAction(xy)),
       untilDisconnected(this),
     ).subscribe(action => this.executeAction(action));
 
-    fromEvent<MouseEvent>(this.container, 'contextmenu').pipe(
+    this.dragstart$.pipe(
+      filter(() => this.mode === ActionType.INSPECT || this.mode === ActionType.MOVE_PICK),
+      map(xy => this.grid.buildingAt(this.getTileCoords(xy))),
+      filter(building => !!building),
       untilDisconnected(this),
-    ).subscribe(e => {
-      e.preventDefault();
+    ).subscribe(building => {
+      this.mode = ActionType.MOVE_COMPLETE;
+      this.move.building = building;
+      this.build.rotate = building.orientation;
+    });
+
+    fromEvent<MouseEvent>(this.container, 'contextmenu').pipe(
+      tap(e => e.preventDefault()),
+      untilDisconnected(this),
+    ).subscribe(() => {
       this.mode = ActionType.INSPECT;
-      this.revalidateAction$.next(null);
+      this.revalidate();
     });
   }
 
-  public disconnectedCallback(): void { }
+  private revalidate(): void {
+    this.revalidate$.next();
+  }
 
-  private validateAction(mouse: CanvasCoords | null): Action {
-    if (this.mode === ActionType.BUILD) {
-      const { width: w, height: h } = this.build.rotate
-        ? { width: this.build.type.height, height: this.build.type.width }
-        : this.build.type;
-      const idealNW: CanvasCoords = { x: mouse.x - (w / 2) * this.tileSide, y: mouse.y - (h / 2) * this.tileSide };
+  private validateAction(xy: CanvasCoords): Action {
+    const snapToGrid = ({ width: w, height: h }: {width: number, height: number}) => {
+      const idealNW: CanvasCoords = { x: xy.x - (w / 2) * this.tileSide, y: xy.y - (h / 2) * this.tileSide };
       const { col, row }: TileCoords = {
         col: Math.floor(idealNW.x / this.tileSide) + +(mod(idealNW.x, this.tileSide) > this.tileSide / 2),
         row: Math.floor(idealNW.y / this.tileSide) + +(mod(idealNW.y, this.tileSide) > this.tileSide / 2),
       };
 
-      const region: Region = { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
+      return { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
+    };
 
+    if (this.mode === ActionType.BUILD) {
+      const region = snapToGrid(this.build.rotate ? { width: this.build.type.height, height: this.build.type.width } : this.build.type);
       return {
         type: ActionType.BUILD,
         validity: this.grid.isFree(region, { road: this.build.type === TYPE_ROAD }) ? ActionValidity.VALID : ActionValidity.INVALID,
@@ -249,8 +300,19 @@ class DesignerGrid extends HTMLElement {
       };
     }
 
-    const building = this.grid.buildingAt(this.getTileCoords(mouse));
-    return { type: this.mode, validity: building ? ActionValidity.VALID : ActionValidity.UNAVAILABLE, region: building ?.region };
+    if (this.mode === ActionType.MOVE_COMPLETE) {
+      const { building } = this.move;
+      const region = snapToGrid(this.build.rotate ? { width: building.type.height, height: building.type.width } : building.type);
+      return {
+        type: ActionType.MOVE_COMPLETE,
+        validity: this.grid.isFree(region, { road: building.type === TYPE_ROAD, ignore: building }) ? ActionValidity.VALID : ActionValidity.INVALID,
+        region,
+        building,
+      };
+    }
+
+    const building = this.grid.buildingAt(this.getTileCoords(xy));
+    return { type: this.mode, validity: building ? ActionValidity.VALID : ActionValidity.UNAVAILABLE, region: building ?.region, building };
   }
 
   private feedbackAction({ type, validity, region }: Action): null {
@@ -284,7 +346,7 @@ class DesignerGrid extends HTMLElement {
       .attr('d', function () { return roundedTop({ w: TEXT_MEASUREMENTS.get(this).w, h: TEXT_MEASUREMENTS.get(this).h, radius: 10 }); }));
   }
 
-  private executeAction({ validity, region }: Action): void {
+  private executeAction({ type, validity, region, building }: Action): void {
     if (validity === ActionValidity.UNAVAILABLE) {
       return;
     }
@@ -295,12 +357,9 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
-    successTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
-
-    const building = this.grid.buildingAt(region ?.nw);
-    switch (this.mode) {
+    switch (type) {
       case ActionType.INSPECT:
-        console.log(building);
+        console.log('inspect', building);
         break;
       case ActionType.BUILD:
         this.grid.place(new Building(this.build.type), region);
@@ -312,12 +371,24 @@ class DesignerGrid extends HTMLElement {
         break;
       case ActionType.COPY:
         this.build.type = building.type;
+        this.build.rotate = building.orientation;
         this.mode = ActionType.BUILD;
         break;
-      default:
+      case ActionType.MOVE_PICK:
+        this.move.building = building;
+        this.build.rotate = building.orientation;
+        this.mode = ActionType.MOVE_COMPLETE;
+        break;
+      case ActionType.MOVE_COMPLETE:
+        this.grid.place(building, region);
+        this.mode = ActionType.MOVE_PICK;
+        this.redrawBuildings();
+        break;
+      default: return;
     }
 
-    this.revalidateAction$.next(null);
+    successTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
+    this.revalidate();
   }
 
   private redraw(): void {
@@ -365,7 +436,7 @@ class DesignerGrid extends HTMLElement {
   private redrawBuildings(): void {
     this.buildings.selectAll<SVGRectElement, Building>('g')
       .data(
-        this.grid.buildings.map(b => Object.assign(b, { geo: this.computeGeometry(b.region) })),
+        [...this.grid.buildings].map(b => Object.assign(b, { geo: this.computeGeometry(b.region) })),
         d => String(d.id),
       )
       .join(
