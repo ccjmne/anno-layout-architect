@@ -18,8 +18,8 @@ import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION } from 'src/utils/transitions';
 
-import { ActionsManager, ActionValidity, Action } from './actions-manager';
-import { Geometrised, CoordinatesSystem } from './coordinates-system';
+import { ActionsManager, ActionValidity, Action, ActionType } from './actions-manager';
+import { Geometrised, CoordinatesSystem, Geometry } from './coordinates-system';
 
 const TEXT_MEASUREMENTS = local<{ w: number, h: number }>();
 const SUBDIVISION_SIZE: number = 3;
@@ -35,6 +35,7 @@ class DesignerGrid extends HTMLElement {
   private svg: Selection<SVGSVGElement, unknown, null, undefined>;
   private buildings: Selection<SVGGElement, Geometrised<Building>, null, undefined>;
   private outline: Selection<SVGGElement, Geometrised<unknown>, null, undefined>;
+  private secondary: Selection<SVGGElement, Geometrised<unknown>, null, undefined>;
 
   private axes: {
     top: Selection<SVGGElement, unknown, null, undefined>,
@@ -96,6 +97,8 @@ class DesignerGrid extends HTMLElement {
     };
 
     this.buildings = this.zerozero.append('g').attr('class', 'buildings') as Selection<SVGGElement, Geometrised<Building>, any, any>;
+    this.secondary = this.zerozero.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
+    this.secondary.append('path').attr('class', 'secondary-outline');
     this.outline = this.zerozero.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
     this.outline.append('rect').attr('class', 'region-outline');
     this.outline.append('path').attr('class', 'text-bg');
@@ -163,9 +166,10 @@ class DesignerGrid extends HTMLElement {
 
   public disconnectedCallback(): void { }
 
-  private feedbackAction({ type, validity, region }: Action): null {
+  private feedbackAction({ type, validity, region, building }: Action): null {
     if (validity === ActionValidity.UNAVAILABLE) {
       opacityTransition(0, this.outline);
+      opacityTransition(0, this.secondary);
       return;
     }
 
@@ -173,6 +177,11 @@ class DesignerGrid extends HTMLElement {
     // drawn from bottom-center
     function roundedTop({ w, h, radius }: { w: number, h: number, radius: number }): string {
       return `m${-w / 2},0 v${-(h - radius)} a${radius},${radius} 0 0,1 ${radius},${-radius} h${w - 2 * radius} a${radius},${radius} 0 0,1 ${radius},${radius} v${h - radius} h${-w}`;
+    }
+
+    // drawn from center-center
+    function box({ geo: { w, h } }: Geometrised<any>): string {
+      return `m${-w / 2},${-h / 2} h${w} v${h} h${-w} v${-h}`;
     }
 
     opacityTransition(1, this.outline.datum({ geo: this.coords.computeGeometry(region) }));
@@ -190,9 +199,21 @@ class DesignerGrid extends HTMLElement {
         const { width, height } = this.getBBox();
         TEXT_MEASUREMENTS.set(this.parentElement, { w: width + 20, h: height + 2 }); // padding: (outline.stroke-width / 2) corner-radius
       })).attr('y', ({ geo: { h } }) => -h / 2);
-    setTimeout(() => snapTransition(this.outline.select<SVGRectElement>('path.text-bg'))
+    snapTransition(this.outline.select<SVGRectElement>('path.text-bg'))
       .attr('transform', ({ geo: { h } }) => `translate(0, ${-h / 2})`)
-      .attr('d', function () { return roundedTop({ w: TEXT_MEASUREMENTS.get(this).w, h: TEXT_MEASUREMENTS.get(this).h, radius: 10 }); }));
+      .attr('d', function () { return roundedTop({ w: TEXT_MEASUREMENTS.get(this).w, h: TEXT_MEASUREMENTS.get(this).h, radius: 10 }); });
+
+    // Secondary outline
+    if (type === ActionType.MOVE_COMPLETE) {
+      opacityTransition(1, this.secondary.datum({ geo: this.coords.computeGeometry(building.region) }));
+      snapTransition(
+        this.secondary.attr('mode', type).attr('error', validity === ActionValidity.INVALID),
+      ).attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
+      snapTransition(this.secondary.select<SVGPathElement>('path.secondary-outline'))
+        .attr('d', box);
+    } else {
+      opacityTransition(0, this.secondary);
+    }
   }
 
   private feedbackActionPerform({ validity }: Action): void {
@@ -203,8 +224,10 @@ class DesignerGrid extends HTMLElement {
     const amplitude = this.coords.tileSide / 4;
     if (validity === ActionValidity.INVALID) {
       errorTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
+      errorTransition(amplitude, this.secondary.select<SVGRectElement>('path'));
     } else {
       successTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
+      successTransition(amplitude, this.secondary.select<SVGRectElement>('path'));
       this.redrawBuildings();
     }
   }
