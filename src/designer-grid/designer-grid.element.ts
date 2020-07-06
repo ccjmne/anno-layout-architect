@@ -22,7 +22,7 @@ import { Grid } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
 import { not, exists } from 'src/utils/nullable';
-import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, mergeTransforms, successTransition } from 'src/utils/transitions';
+import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION } from 'src/utils/transitions';
 
 import { Geometrised, LocalCoords, CoordinatesSystem } from './coordinates-system';
 
@@ -317,7 +317,7 @@ class DesignerGrid extends HTMLElement {
     opacityTransition(1, this.outline.datum({ geo: this.coords.computeGeometry(region) }));
     snapTransition(
       this.outline.attr('mode', this.mode).attr('error', validity === ActionValidity.INVALID),
-    ).attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
+    ).attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
     snapTransition(this.outline.select<SVGRectElement>('rect.region-outline'))
       .attr('x', ({ geo: { w } }) => -w / 2)
       .attr('y', ({ geo: { h } }) => -h / 2)
@@ -388,22 +388,22 @@ class DesignerGrid extends HTMLElement {
       .attr('transform', `translate(${-(w / 2 + x[0])}, ${-(h / 2 + y[0])})`);
 
     this.redrawBackground();
-    this.redrawBuildings();
+    this.redrawBuildings(DURATION.SLOW);
     this.revalidate();
   }
 
-  private redrawBuildings(): void {
+  private redrawBuildings(duration?: DURATION): void {
     const { x, y, cols, rows } = this.coords.computeGeometry(this.grid.bounds);
-    slowTransition(this.axes.top)
+    transition(this.axes.top, duration)
       .attr('transform', `translate(0, ${y[0]})`)
       .call(axisTop(scaleBand().domain(range(1, cols + 1).map(String)).range(x)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
-    slowTransition(this.axes.bottom)
+    transition(this.axes.bottom, duration)
       .attr('transform', `translate(0, ${y[1]})`)
       .call(axisBottom(scaleBand().domain(range(1, cols + 1).map(String)).range(x)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
-    slowTransition(this.axes.left)
+    transition(this.axes.left, duration)
       .attr('transform', `translate(${x[0]}, 0)`)
       .call(axisLeft(scaleBand().domain(range(1, rows + 1).map(String)).range(y)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
-    slowTransition(this.axes.right)
+    transition(this.axes.right, duration)
       .attr('transform', `translate(${x[1]}, 0)`)
       .call(axisRight(scaleBand().domain(range(1, rows + 1).map(String)).range(y)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
 
@@ -415,7 +415,7 @@ class DesignerGrid extends HTMLElement {
       .join(
         enter => {
           const g = enter.append('g')
-            .attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
+            .attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
           g.append('rect')
             .attr('x', ({ geo: { w } }) => -w / 2)
             .attr('y', ({ geo: { h } }) => -h / 2)
@@ -427,16 +427,14 @@ class DesignerGrid extends HTMLElement {
             .style('text-anchor', 'middle')
             .style('dominant-baseline', 'middle')
             .text(d => d.type.name);
-
-          // g.call(e => enterTransition(e));
           return g;
         },
         update => {
           update.each(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) }))
             .call(u => {
-              slowTransition(u)
-                .attr('transform', function ({ geo: { cx, cy } }) { return mergeTransforms(this, `translate(${cx} ${cy})`); });
-              slowTransition(u.select<SVGRectElement>('rect'))
+              transition(u, duration)
+                .attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
+              transition(u.select<SVGRectElement>('rect'), duration)
                 .attr('x', ({ geo: { w } }) => -w / 2)
                 .attr('y', ({ geo: { h } }) => -h / 2)
                 .attr('width', ({ geo: { w } }) => w)
