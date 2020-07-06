@@ -163,7 +163,10 @@ class DesignerGrid extends HTMLElement {
       untilDisconnected(this),
     ).subscribe(() => this.recenter());
 
-    fromEvent<MouseEvent>(this.container, 'mousemove').pipe(
+    merge(
+      fromEvent<MouseEvent>(this.container, 'mousemove'),
+      fromEvent<MouseEvent>(this.container, 'click'),
+    ).pipe(
       map(e => this.coords.toTileCoords(e)),
       distinctUntilChanged(compareTileCoords),
       untilDisconnected(this),
