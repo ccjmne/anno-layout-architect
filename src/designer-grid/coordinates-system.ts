@@ -16,13 +16,23 @@ import { switchMap } from 'rxjs/internal/operators/switchMap';
 import { tap } from 'rxjs/internal/operators/tap';
 
 import { Region, TileCoords } from 'src/designer-engine/definitions';
+import { mod } from 'src/utils/maths';
 
 const DEBOUNCE_ACTIVITY = 1000;
 const TILES_PADDING = 4;
 
 export type LocalCoords = { x: number, y: number };
-export type Geometry = { x: [number, number], y: [number, number], w: number, h: number, cx: number, cy: number };
 export type Geometrised<Datum> = Datum & { geo: Geometry };
+export type Geometry = {
+  x: [number, number],
+  y: [number, number],
+  w: number,
+  h: number,
+  cols: number,
+  rows: number,
+  cx: number,
+  cy: number
+};
 
 export class CoordinatesSystem {
 
@@ -66,12 +76,14 @@ export class CoordinatesSystem {
         const bgW = offsetWidth + 2;
         const bgH = offsetHeight + 2;
         this.background = {
-          w: bgW,
-          h: bgH,
-          cx,
-          cy,
           x: [-bgW / 2 + cx, bgW / 2 + cx],
           y: [-bgH / 2 + cy, bgH / 2 + cy],
+          w: bgW,
+          h: bgH,
+          cols,
+          rows,
+          cx,
+          cy,
         };
       }),
       // TODO: takeUntil? This needs unsubscribing.
@@ -87,14 +99,28 @@ export class CoordinatesSystem {
   }
 
   public computeGeometry({ nw, se }: Region): Geometry {
+    const cols = se.col - nw.col + 1;
+    const rows = se.row - nw.row + 1;
     return {
-      w: (se.col - nw.col + 1) * this.tileSide,
-      h: (se.row - nw.row + 1) * this.tileSide,
-      cx: (se.col + nw.col + 1) * (this.tileSide / 2),
-      cy: (se.row + nw.row + 1) * (this.tileSide / 2),
       x: [nw.col * this.tileSide, (se.col + 1) * this.tileSide],
       y: [nw.row * this.tileSide, (se.row + 1) * this.tileSide],
+      w: cols * this.tileSide,
+      h: rows * this.tileSide,
+      cols,
+      rows,
+      cy: (se.row + nw.row + 1) * (this.tileSide / 2),
+      cx: (se.col + nw.col + 1) * (this.tileSide / 2),
     };
+  }
+
+  public snapToGrid({ x, y }: LocalCoords, { w, h }: { w: number, h: number }): Region {
+    const idealNW: LocalCoords = { x: x - (w / 2) * this.tileSide, y: y - (h / 2) * this.tileSide };
+    const { col, row }: TileCoords = {
+      col: Math.floor(idealNW.x / this.tileSide) + +(mod(idealNW.x, this.tileSide) > this.tileSide / 2),
+      row: Math.floor(idealNW.y / this.tileSide) + +(mod(idealNW.y, this.tileSide) > this.tileSide / 2),
+    };
+
+    return { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
   }
 
   // Call this method to bypass activity debounce

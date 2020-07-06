@@ -16,7 +16,7 @@ import { startWith } from 'rxjs/internal/operators/startWith';
 
 import { filter, tap, mapTo } from 'rxjs/operators';
 
-import { Building, BuildingType, TYPE_ROAD, TYPE_FARM } from 'src/designer-engine/building.class';
+import { Building, BuildingType, TYPE_ROAD, TYPE_FARM, rotate, ORIENTATION } from 'src/designer-engine/building.class';
 import { TileCoords, Region, compareRegions, compareTileCoords } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
@@ -44,20 +44,6 @@ type Action = { type: ActionType, validity: ActionValidity, region: Region | nul
 
 function compareActions(a: Action | null, b: Action | null): boolean {
   return not(a) ? not(b) : exists(b) && a.type === b.type && a.validity === b.validity && compareRegions(a.region, b.region);
-}
-
-function computeLabels({ se, nw }: Region): { cols: string[], rows: string[] } {
-  // // absolute mode
-  // return {
-  //   cols: range(nw.col, se.col + 1).map(String),
-  //   rows: range(nw.row, se.row + 1).map(String),
-  // };
-
-  // relative mode, 1-based
-  return {
-    cols: range(1, se.col - nw.col + 2).map(String),
-    rows: range(1, se.row - nw.row + 2).map(String),
-  };
 }
 
 class DesignerGrid extends HTMLElement {
@@ -93,7 +79,7 @@ class DesignerGrid extends HTMLElement {
   // Engine model
   private readonly grid: Grid = new Grid();
   private mode: ActionType = ActionType.INSPECT;
-  private readonly build: { type: BuildingType, rotate: boolean } = { type: TYPE_ROAD, rotate: false };
+  private readonly build: { type: BuildingType, orientation: ORIENTATION } = { type: TYPE_ROAD, orientation: ORIENTATION.HORIZONTAL };
   private readonly move: { building: Building | null } = { building: null };
 
   // Helper classes
@@ -216,7 +202,7 @@ class DesignerGrid extends HTMLElement {
         case ',':
         case 'q':
         case 'e':
-          this.build.rotate = !this.build.rotate;
+          this.build.orientation = this.build.orientation === ORIENTATION.HORIZONTAL ? ORIENTATION.VERTICAL : ORIENTATION.HORIZONTAL;
           break;
         case 'b':
           this.mode = ActionType.BUILD;
@@ -272,7 +258,7 @@ class DesignerGrid extends HTMLElement {
     ).subscribe(building => {
       this.mode = ActionType.MOVE_COMPLETE;
       this.move.building = building;
-      this.build.rotate = building.orientation;
+      this.build.orientation = building.orientation;
     });
 
     fromEvent<MouseEvent>(this.container, 'contextmenu').pipe(
@@ -290,18 +276,8 @@ class DesignerGrid extends HTMLElement {
   }
 
   private validateAction(xy: LocalCoords): Action {
-    const snapToGrid = ({ width: w, height: h }: { width: number, height: number }) => {
-      const idealNW: LocalCoords = { x: xy.x - (w / 2) * this.coords.tileSide, y: xy.y - (h / 2) * this.coords.tileSide };
-      const { col, row }: TileCoords = {
-        col: Math.floor(idealNW.x / this.coords.tileSide) + +(mod(idealNW.x, this.coords.tileSide) > this.coords.tileSide / 2),
-        row: Math.floor(idealNW.y / this.coords.tileSide) + +(mod(idealNW.y, this.coords.tileSide) > this.coords.tileSide / 2),
-      };
-
-      return { nw: { col, row }, se: { col: col + w - 1, row: row + h - 1 } };
-    };
-
     if (this.mode === ActionType.BUILD) {
-      const region = snapToGrid(this.build.rotate ? { width: this.build.type.height, height: this.build.type.width } : this.build.type);
+      const region = this.coords.snapToGrid(xy, rotate(this.build.type, this.build.orientation));
       return {
         type: ActionType.BUILD,
         validity: this.grid.isFree(region, { road: this.build.type === TYPE_ROAD }) ? ActionValidity.VALID : ActionValidity.INVALID,
@@ -311,10 +287,12 @@ class DesignerGrid extends HTMLElement {
 
     if (this.mode === ActionType.MOVE_COMPLETE) {
       const { building } = this.move;
-      const region = snapToGrid(this.build.rotate ? { width: building.type.height, height: building.type.width } : building.type);
+      const region = this.coords.snapToGrid(xy, rotate(building.type, this.build.orientation));
       return {
         type: ActionType.MOVE_COMPLETE,
-        validity: this.grid.isFree(region, { road: building.type === TYPE_ROAD, ignore: building }) ? ActionValidity.VALID : ActionValidity.INVALID,
+        validity: this.grid.isFree(region, { road: building.type === TYPE_ROAD, ignore: building })
+          ? ActionValidity.VALID
+          : ActionValidity.INVALID,
         region,
         building,
       };
@@ -330,6 +308,7 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
+    // TODO: maybe extract in 'shapes' helpers file?
     // drawn from bottom-center
     function roundedTop({ w, h, radius }: { w: number, h: number, radius: number }): string {
       return `m${-w / 2},0 v${-(h - radius)} a${radius},${radius} 0 0,1 ${radius},${-radius} h${w - 2 * radius} a${radius},${radius} 0 0,1 ${radius},${radius} v${h - radius} h${-w}`;
@@ -380,12 +359,12 @@ class DesignerGrid extends HTMLElement {
         break;
       case ActionType.COPY:
         this.build.type = building.type;
-        this.build.rotate = building.orientation;
+        this.build.orientation = building.orientation;
         this.mode = ActionType.BUILD;
         break;
       case ActionType.MOVE_PICK:
         this.move.building = building;
-        this.build.rotate = building.orientation;
+        this.build.orientation = building.orientation;
         this.mode = ActionType.MOVE_COMPLETE;
         break;
       case ActionType.MOVE_COMPLETE:
@@ -410,25 +389,23 @@ class DesignerGrid extends HTMLElement {
 
     this.redrawBackground();
     this.redrawBuildings();
-    this.redrawHighlights();
     this.revalidate();
   }
 
   private redrawBuildings(): void {
-    const { x, y } = this.coords.computeGeometry(this.grid.bounds);
-    const { cols, rows } = computeLabels(this.grid.bounds);
+    const { x, y, cols, rows } = this.coords.computeGeometry(this.grid.bounds);
     slowTransition(this.axes.top)
       .attr('transform', `translate(0, ${y[0]})`)
-      .call(axisTop(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
+      .call(axisTop(scaleBand().domain(range(1, cols + 1).map(String)).range(x)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
     slowTransition(this.axes.bottom)
       .attr('transform', `translate(0, ${y[1]})`)
-      .call(axisBottom(scaleBand().domain(cols).range(x)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
+      .call(axisBottom(scaleBand().domain(range(1, cols + 1).map(String)).range(x)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
     slowTransition(this.axes.left)
       .attr('transform', `translate(${x[0]}, 0)`)
-      .call(axisLeft(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
+      .call(axisLeft(scaleBand().domain(range(1, rows + 1).map(String)).range(y)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
     slowTransition(this.axes.right)
       .attr('transform', `translate(${x[1]}, 0)`)
-      .call(axisRight(scaleBand().domain(rows).range(y)).tickSizeInner(0).tickSizeOuter(this.coords.tileSide / 4));
+      .call(axisRight(scaleBand().domain(range(1, rows + 1).map(String)).range(y)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
 
     this.buildings.selectAll<SVGRectElement, Building>('g')
       .data(
@@ -473,7 +450,7 @@ class DesignerGrid extends HTMLElement {
   }
 
   private redrawBackground(): void {
-    const { w, h, x, y } = this.coords.background;
+    const { x, y, w, h } = this.coords.background;
     slowTransition(this.axes.rows)
       .attr('transform', `translate(${x[0]}, 0)`)
       .call(axisRight(scaleLinear().domain(y.map(d => d / this.coords.tileSide)).range(y)).ticks(h / this.coords.tileSide).tickSize(w));
@@ -494,7 +471,7 @@ class DesignerGrid extends HTMLElement {
       return;
     }
 
-    const { w, h, x, y } = this.coords.background;
+    const { x, y, w, h } = this.coords.background;
     opacityTransition(
       0.3,
       this.highlights.col
