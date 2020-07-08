@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "prebuild": "node scripts/generate-building-types.js",
     "build": "cross-env TS_NODE_PROJECT=\"tsconfig-for-webpack-config.json\" webpack --mode production",
     "start": "cross-env TS_NODE_PROJECT=\"tsconfig-for-webpack-config.json\" webpack-dev-server --port 8042 --mode development"
   },
@@ -65,6 +66,7 @@
     "imagemin-webpack-plugin": "^2.4.2",
     "mini-css-extract-plugin": "^0.9.0",
     "node-sass": "^4.14.1",
+    "node-vibrant": "^3.1.5",
     "sass-loader": "^8.0.2",
     "sass-resources-loader": "^2.0.3",
     "script-ext-html-webpack-plugin": "^2.1.4",
