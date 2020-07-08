@@ -1,9 +1,11 @@
+import AutoComplete from '@tarekraafat/autocomplete.js';
 import { range } from 'd3-array';
 import { axisTop, axisBottom, axisLeft, axisRight } from 'd3-axis';
-import { hsl } from 'd3-color';
+import { color } from 'd3-color';
 import { scaleLinear, scaleBand } from 'd3-scale';
 import { select, Selection, local } from 'd3-selection';
 
+import { resolve } from 'path';
 import { fromEvent } from 'rxjs/internal/observable/fromEvent';
 import { merge } from 'rxjs/internal/observable/merge';
 import { distinctUntilChanged } from 'rxjs/internal/operators/distinctUntilChanged';
@@ -11,7 +13,7 @@ import { map } from 'rxjs/internal/operators/map';
 import { startWith } from 'rxjs/internal/operators/startWith';
 import { tap, mapTo } from 'rxjs/operators';
 
-import { Building, TYPE_FARM } from 'src/designer-engine/building.class';
+import { Building, TYPE_FARM, BUILDING_TYPES, BuildingType } from 'src/designer-engine/building.class';
 import { TileCoords, compareTileCoords } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
@@ -19,10 +21,19 @@ import { mod } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION } from 'src/utils/transitions';
 
 import { ActionsManager, ActionValidity, Action, ActionType } from './actions-manager';
-import { Geometrised, CoordinatesSystem, Geometry } from './coordinates-system';
+import { Geometrised, CoordinatesSystem } from './coordinates-system';
+
+function pathTo(icon: string) {
+  return resolve(__dirname, 'assets/anno-designer-presets/icons', icon);
+}
 
 const TEXT_MEASUREMENTS = local<{ w: number, h: number }>();
 const SUBDIVISION_SIZE: number = 3;
+const IMG_MEASURER: HTMLImageElement = new Image(); // TODO: should be part of building 'building-types.json'
+function measureImage(icon: string): { w: number, h: number } {
+  IMG_MEASURER.setAttribute('src', pathTo(icon));
+  return { w: IMG_MEASURER.width, h: IMG_MEASURER.height };
+}
 
 class DesignerGrid extends HTMLElement {
 
@@ -72,6 +83,32 @@ class DesignerGrid extends HTMLElement {
     style.type = 'text/css';
     style.append(document.createTextNode(require('./designer-grid.inline.scss')));
     this.shadowRoot.innerHTML += style.outerHTML + require('./designer-grid.template.html');
+
+    new AutoComplete({ // eslint-disable-line no-new
+      data: {
+        src: BUILDING_TYPES,
+        key: ['name'],
+      },
+      resultsList: {
+        render: true,
+        destination: this.shadowRoot.querySelector('[grid-area=buttons]'),
+        position: 'beforeend',
+        element: 'div',
+      },
+      resultItem: {
+        content: ({ match, value }: { match: string, value: BuildingType }, source: HTMLParagraphElement) => {
+          source.innerHTML = `${match}<hr /><img src="./assets/anno-designer-presets/icons/${value.icon}" />`; // eslint-disable-line
+        },
+        element: 'p',
+      },
+      selector: () => this.shadowRoot.querySelector('#autocomplete'),
+      placeHolder: 'Search buildings...',
+      highlight: true,
+      onSelection: ({ selection: { value: type } }: {
+        results: BuildingType[],
+        selection: { value: BuildingType }
+      }) => this.actions.startBuilding(type),
+    });
 
     this.container = this.shadowRoot.querySelector('main');
     this.svg = select(this.shadowRoot.querySelector('svg'));
@@ -216,7 +253,7 @@ class DesignerGrid extends HTMLElement {
     }
   }
 
-  private feedbackActionPerform({ validity }: Action): void {
+  private feedbackActionPerform({ type, validity }: Action): void {
     if (validity === ActionValidity.UNAVAILABLE) {
       return;
     }
@@ -224,11 +261,17 @@ class DesignerGrid extends HTMLElement {
     const amplitude = this.coords.tileSide / 4;
     if (validity === ActionValidity.INVALID) {
       errorTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
-      errorTransition(amplitude, this.secondary.select<SVGRectElement>('path'));
     } else {
       successTransition(amplitude, this.outline.select<SVGRectElement>('rect'));
-      successTransition(amplitude, this.secondary.select<SVGRectElement>('path'));
-      this.redrawBuildings();
+      this.redrawBuildings(); // TODO: should be bound to a notification from Grid that the buildings list has evolved
+    }
+
+    if (type === ActionType.MOVE_COMPLETE) {
+      if (validity === ActionValidity.INVALID) {
+        errorTransition(amplitude, this.secondary.select<SVGPathElement>('path'));
+      } else {
+        successTransition(amplitude, this.secondary.select<SVGPathElement>('path'));
+      }
     }
   }
 
@@ -260,6 +303,17 @@ class DesignerGrid extends HTMLElement {
       .attr('transform', `translate(${x[1]}, 0)`)
       .call(axisRight(scaleBand().domain(range(1, rows + 1).map(String)).range(y)).tickSize(0).tickSizeOuter(this.coords.tileSide / 4));
 
+    function fit({ w, h }, { w: maxW, h: maxH }): { w: number, h: number } {
+      if (w > maxW || h > maxH) {
+        return {
+          w: w * Math.min(maxW / w, maxH / h),
+          h: h * Math.min(maxW / w, maxH / h),
+        };
+      }
+
+      return { w, h };
+    }
+
     this.buildings.selectAll<SVGRectElement, Building>('g')
       .data(
         [...this.grid.buildings].map(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })),
@@ -274,12 +328,16 @@ class DesignerGrid extends HTMLElement {
             .attr('y', ({ geo: { h } }) => -h / 2)
             .attr('width', ({ geo: { w } }) => w)
             .attr('height', ({ geo: { h } }) => h)
-            .attr('fill', d => d.type.colour.hex())
-            .attr('stroke', d => hsl(d.type.colour.hex()).darker(1.5).hex());
-          g.append('text')
-            .style('text-anchor', 'middle')
-            .style('dominant-baseline', 'middle')
-            .text(d => d.type.name);
+            .style('fill', ({ type: { colour } }) => colour)
+            .style('stroke', ({ type: { colour } }) => color(colour).darker(2).hex());
+
+          g.append('image').datum(b => ({ ...b, img: measureImage(b.type.icon) }))
+            .attr('xlink:href', ({ type: { icon } }) => pathTo(icon))
+            .attr('x', ({ geo, img }) => -fit(img, geo).w / 2)
+            .attr('y', ({ geo, img }) => -fit(img, geo).h / 2)
+            .attr('width', ({ geo, img }) => fit(img, geo).w)
+            .attr('height', ({ geo, img }) => fit(img, geo).h);
+
           return g;
         },
         update => {
@@ -292,6 +350,11 @@ class DesignerGrid extends HTMLElement {
                 .attr('y', ({ geo: { h } }) => -h / 2)
                 .attr('width', ({ geo: { w } }) => w)
                 .attr('height', ({ geo: { h } }) => h);
+              transition(u.select<SVGImageElement>('image').datum(b => ({ ...b, img: measureImage(b.type.icon) })), duration)
+                .attr('x', ({ geo, img }) => -fit(img, geo).w / 2)
+                .attr('y', ({ geo, img }) => -fit(img, geo).h / 2)
+                .attr('width', ({ geo, img }) => fit(img, geo).w)
+                .attr('height', ({ geo, img }) => fit(img, geo).h);
             });
 
           return update;

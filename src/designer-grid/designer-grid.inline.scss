@@ -12,6 +12,14 @@
   display: grid;
   grid-template: 'buttons' auto 'grid' 1fr;
   line-height: 0;
+
+  * {
+    line-height: initial;
+  }
+}
+
+.autoComplete_highlighted {
+  color: red;
 }
 
 :host,
@@ -52,7 +60,7 @@ svg {
     rect {
       transition: fill 100ms ease-out;
       stroke-width: 2;
-      opacity: .6;
+      fill-opacity: .5;
     }
   }
 

@@ -107,6 +107,11 @@ export class ActionsManager {
     this.changeMode(ActionType.INSPECT);
   }
 
+  public startBuilding(type: BuildingType) {
+    this.BUILD.type = type;
+    this.changeMode(ActionType.BUILD);
+  }
+
   public mousemove(xy: LocalCoords): void {
     this.mousemove$.next(xy);
   }

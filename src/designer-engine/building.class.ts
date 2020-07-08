@@ -1,11 +1,10 @@
-import { color, Color } from 'd3-color';
+import b from '../../assets/building-types.json';
 
 import { Region } from './definitions';
 
-export const TYPE_FARM: BuildingType = { colour: color('darkorange'), name: 'Farm', w: 3, h: 2 };
-export const TYPE_ROAD: BuildingType = { colour: color('grey'), name: '', w: 1, h: 1 };
-
-let SEQ = 0;
+export const TYPE_FARM: BuildingType = { colour: 'white', name: 'Farm', icon: 'A7_wool.png', w: 3, h: 2, id: 'farm' };
+export const TYPE_ROAD: BuildingType = { colour: '#ececec', name: '', icon: 'A7_ornament_straight_promenade.png', w: 1, h: 1, id: 'road' };
+export const BUILDING_TYPES: BuildingType[] = b as BuildingType[];
 
 export enum ORIENTATION {
   HORIZONTAL,
@@ -17,13 +16,17 @@ export function rotate({ w, h }: { w: number, h: number }, orientation: ORIENTAT
 }
 
 export type BuildingType = {
+  id: string;
   name: string;
-  colour: Color;
+  colour: string;
+  icon: string;
   w: number;
   h: number;
 }
 
 export class Building {
+
+  private static SEQ: number = 0;
 
   public readonly id: number;
   public type!: BuildingType;
@@ -41,7 +44,7 @@ export class Building {
   public children: Array<Building> = [];
 
   constructor(type: BuildingType, parent?: Building) {
-    this.id = SEQ++; // eslint-disable-line no-plusplus
+    this.id = Building.SEQ++; // eslint-disable-line no-plusplus
     this.type = type;
     this.children = [];
     if (parent) {
