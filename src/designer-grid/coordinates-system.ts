@@ -16,7 +16,7 @@ import { Region, TileCoords } from 'src/designer-engine/definitions';
 import { mod } from 'src/utils/maths';
 
 const DEBOUNCE_ACTIVITY = 1000;
-const TILES_PADDING = 4;
+const TILES_PADDING = 10;
 
 export type LocalCoords = { x: number, y: number };
 export type Geometrised<Datum> = Datum & { geo: Geometry };
