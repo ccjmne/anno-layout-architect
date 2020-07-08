@@ -74,8 +74,6 @@ class DesignerGrid extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this.grid.place(new Building(TYPE_FARM), { nw: { row: 1, col: 1 }, se: { row: 2, col: 3 } });
-    this.grid.place(new Building(TYPE_FARM), { nw: { row: 7, col: 8 }, se: { row: 9, col: 9 } });
   }
 
   public connectedCallback(): void {

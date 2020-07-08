@@ -1,6 +1,6 @@
 import { ReplaySubject, Subject } from 'rxjs';
 
-import { Building, TYPE_ROAD, BuildingType } from './building.class';
+import { Building, TYPE_ROAD, BuildingType, BUILDING_TYPES } from './building.class';
 import { Region, compareRegions, TileCoords } from './definitions';
 
 // enum ORIENTATION {
@@ -38,6 +38,7 @@ export class Grid {
 
   constructor() {
     this.resizeGrid();
+    require('./tmp/sample-grid.json').forEach(b => this.place(new Building(BUILDING_TYPES[BUILDING_TYPES.findIndex(({ id }) => id === b.type.id.toLowerCase())]), b.region));
   }
 
   public buildingAt(at: TileCoords): Building | null {
