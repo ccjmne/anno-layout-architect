@@ -62,7 +62,7 @@ export class EncodeDecoderV1 extends EncoderDecoder<Building[]> {
         while (buildings.length) {
           res += TYPE_AND_COUNT.encode({ type, count: Math.min(buildings.length, TYPE_BUILDINGS_CHUNKSIZE) });
           res += buildings.splice(0, TYPE_BUILDINGS_CHUNKSIZE)
-            .map(({ region: { nw }, orientation }) => COORDS_AND_ORIENTATION.encode({ ...nw, orientation })).join('');
+            .map(({ at, orientation }) => COORDS_AND_ORIENTATION.encode({ ...at, orientation })).join('');
         }
       });
 

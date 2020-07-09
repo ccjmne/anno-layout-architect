@@ -71,13 +71,13 @@ export class Grid {
 
   public getCode(this: Grid): string {
     return ENCODER_DECODER_V0.encode([...this.buildings]
-      .map(({ type, region: { nw }, orientation, parent }) => new Building(type, this.normaliseCoords(nw), orientation, parent)));
+      .map(({ type, at, orientation, parent }) => new Building(type, this.normaliseCoords(at), orientation, parent)));
   }
 
   public fromCode(code: string): void {
     this.buildings.clear();
     // TODO: this may trigger lots of redraws; just bulk-add buildings rather
-    ENCODER_DECODER_V0.decode(code).forEach(({ type, region: { nw }, orientation }) => this.place(type, nw, orientation));
+    ENCODER_DECODER_V0.decode(code).forEach(({ type, at, orientation }) => this.place(type, at, orientation));
   }
 
   private resizeGrid(): void {

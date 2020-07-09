@@ -25,16 +25,11 @@ export class Building {
   private static SEQ: number = 0;
 
   public readonly id: number; // TODO: maybe can't be deleted, 'cause it'll be used in later versions of EncoderDecoder
-  public type!: BuildingType;
-  public region: Region | null = null;
 
-  // TODO: maybe should be actual property
-  // TODO: maybe grid should take a BuildingType and ORIENTATION, maybe 'region' should only be computed on request
-  public get orientation(): ORIENTATION {
-    return this.region && this.region.se.col - this.region.nw.col + 1 < this.region.se.row - this.region.nw.row + 1
-      ? ORIENTATION.VERTICAL
-      : ORIENTATION.HORIZONTAL;
-  }
+  public type!: BuildingType;
+  public orientation: ORIENTATION;
+  public at: TileCoords;
+  public region: Region;
 
   public parent?: Building;
   public children: Array<Building> = [];
@@ -51,7 +46,9 @@ export class Building {
   }
 
   public move(to: TileCoords, orientation: ORIENTATION) {
-    this.region = computeRegion(this.type, to, orientation);
+    this.at = to;
+    this.orientation = orientation;
+    this.region = computeRegion(this.type, this.at, this.orientation);
   }
 
 }
