@@ -7,8 +7,8 @@ import { filter } from 'rxjs/internal/operators/filter';
 import { map } from 'rxjs/internal/operators/map';
 import { tap } from 'rxjs/internal/operators/tap';
 
-import { Building, ORIENTATION, BuildingType, rotate, TYPE_ROAD, TYPE_FARM } from 'src/designer-engine/building.class';
-import { Region, compareRegions } from 'src/designer-engine/definitions';
+import { Building, BuildingType, rotate, BUILDING_TYPES } from 'src/designer-engine/building.class';
+import { Region, compareRegions, ORIENTATION } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
 import { not, exists } from 'src/utils/nullable';
 
@@ -48,7 +48,11 @@ export class ActionsManager {
   private mode: ActionType = ActionType.INSPECT;
 
   // for BUILD and MOVE_COMPLETE
-  private readonly BUILD: { type: BuildingType, orientation: ORIENTATION } = { type: TYPE_FARM, orientation: ORIENTATION.HORIZONTAL };
+  // TODO: remove need for initialisation?
+  private readonly BUILD: { type: BuildingType, orientation: ORIENTATION } = {
+    type: BUILDING_TYPES[0], orientation: ORIENTATION.HORIZONTAL,
+  };
+
   private readonly MOVE: { building: Building | null } = { building: null };
 
   // Cursor Observables
@@ -135,9 +139,11 @@ export class ActionsManager {
   private validateAction(xy: LocalCoords): Action {
     if (this.mode === ActionType.BUILD) {
       const region = this.coords.snapToGrid(xy, rotate(this.BUILD.type, this.BUILD.orientation));
+
+      // TODO: Allow building road-ish on road-ish?
       return {
         type: ActionType.BUILD,
-        validity: this.grid.isFree(region, { road: this.BUILD.type === TYPE_ROAD }) ? ActionValidity.VALID : ActionValidity.INVALID,
+        validity: this.grid.isFree(region/* , { road: this.BUILD.type === TYPE_ROAD } */) ? ActionValidity.VALID : ActionValidity.INVALID,
         region,
       };
     }
@@ -145,9 +151,11 @@ export class ActionsManager {
     if (this.mode === ActionType.MOVE_COMPLETE) {
       const { building } = this.MOVE;
       const region = this.coords.snapToGrid(xy, rotate(building.type, this.BUILD.orientation));
+
+      // TODO: Allow moving road-ish on road-ish?
       return {
         type: ActionType.MOVE_COMPLETE,
-        validity: this.grid.isFree(region, { road: building.type === TYPE_ROAD, ignore: building })
+        validity: this.grid.isFree(region, { /* road: building.type === TYPE_ROAD, */ ignore: building })
           ? ActionValidity.VALID
           : ActionValidity.INVALID,
         region,
@@ -173,7 +181,7 @@ export class ActionsManager {
         console.log('inspect', building);
         break;
       case ActionType.BUILD:
-        this.grid.place(new Building(this.BUILD.type), region);
+        this.grid.place(this.BUILD.type, region.nw, this.BUILD.orientation);
         break;
       case ActionType.DESTROY:
         this.grid.remove(building);
@@ -189,7 +197,7 @@ export class ActionsManager {
         this.changeMode(ActionType.MOVE_COMPLETE);
         break;
       case ActionType.MOVE_COMPLETE:
-        this.grid.place(building, region);
+        this.grid.move(building, region.nw, this.BUILD.orientation);
         this.changeMode(ActionType.MOVE_PICK);
         break;
       default: return;
@@ -220,7 +228,8 @@ export class ActionsManager {
         this.changeMode(ActionType.MOVE_PICK);
         break;
       case 's':
-        this.BUILD.type = TYPE_ROAD;
+        // TODO: automatically select "ROAD" type;
+        // this.BUILD.type = TYPE_ROAD;
         this.changeMode(ActionType.BUILD);
         break;
       case 'escape':

@@ -12,16 +12,19 @@ function img(path) {
 const output = resolve(__dirname, '../assets', 'building-types.json');
 
 Promise.all(
-  Buildings.filter(({ Header }) => /\(a7\)/i.test(Header))
+  Buildings
     .map(({
+      Header: header,
       Identifier: id,
       Localization: { eng: name },
       IconFileName: icon,
       BuildBlocker: { x, z },
-    }) => from(img(icon)).getPalette().then(({ Vibrant, LightVibrant, DarkVibrant }) => {
+    }) => ({ header, id, name, icon, x, z }))
+    .filter(({ header, id }) => /\(a7\)/i.test(header) && !/ornament|1x1|2x2|3x3/i.test(id))
+    .map(({ name, icon, x, z }, i) => from(img(icon)).getPalette().then(({ Vibrant, LightVibrant, DarkVibrant }) => {
       const colour = [Vibrant, LightVibrant, DarkVibrant].filter(c => c.getPopulation());
       return {
-        id: id.replace(/[^\d\w]+/g, '-').toLowerCase(),
+        id: i,
         name,
         icon,
         colour: colour.length ? colour[0].getHex() : '#ffffff',

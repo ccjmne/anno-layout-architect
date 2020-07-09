@@ -1,22 +1,13 @@
-import b from '../../assets/building-types.json';
+import { Region, ORIENTATION } from './definitions';
 
-import { Region } from './definitions';
-
-export const TYPE_FARM: BuildingType = { colour: 'white', name: 'Farm', icon: 'A7_wool.png', w: 3, h: 2, id: 'farm' };
-export const TYPE_ROAD: BuildingType = { colour: '#ececec', name: '', icon: 'A7_ornament_straight_promenade.png', w: 1, h: 1, id: 'road' };
-export const BUILDING_TYPES: BuildingType[] = b as BuildingType[];
-
-export enum ORIENTATION {
-  HORIZONTAL,
-  VERTICAL,
-}
+export const BUILDING_TYPES: BuildingType[] = require('../../assets/building-types.json') as BuildingType[];
 
 export function rotate({ w, h }: { w: number, h: number }, orientation: ORIENTATION = ORIENTATION.HORIZONTAL): { w: number, h: number } {
   return orientation === ORIENTATION.HORIZONTAL ? { w, h } : { w: h, h: w };
 }
 
 export type BuildingType = {
-  id: string;
+  id: number; // id ∈ [0, 255]
   name: string;
   colour: string;
   icon: string;
@@ -58,5 +49,3 @@ export class Building {
   }
 
 }
-
-export const BUILDING_ROAD = new Building(TYPE_ROAD);

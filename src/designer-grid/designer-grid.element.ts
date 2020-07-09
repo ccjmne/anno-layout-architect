@@ -13,9 +13,10 @@ import { map } from 'rxjs/internal/operators/map';
 import { startWith } from 'rxjs/internal/operators/startWith';
 import { tap, mapTo } from 'rxjs/operators';
 
-import { Building, TYPE_FARM, BUILDING_TYPES, BuildingType } from 'src/designer-engine/building.class';
+import { Building, BUILDING_TYPES, BuildingType } from 'src/designer-engine/building.class';
 import { TileCoords, compareTileCoords } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
+import { randomTemplate } from 'src/designer-engine/templates';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION } from 'src/utils/transitions';
@@ -112,7 +113,13 @@ class DesignerGrid extends HTMLElement {
     this.svg = select(this.shadowRoot.querySelector('svg'));
 
     this.shadowRoot.querySelector('button#dump').addEventListener('click', () => {
-      console.log(this.grid.buildings);
+      console.log(this.grid.getCode());
+    });
+    this.shadowRoot.querySelector('button#load').addEventListener('click', () => {
+      const code = prompt('Template code', randomTemplate());
+      if (code) {
+        this.grid.fromCode(code);
+      }
     });
 
     this.center = this.svg.append('g').attr('class', 'center');

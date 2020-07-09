@@ -1,27 +1,10 @@
 import { ReplaySubject, Subject } from 'rxjs';
 
-import { Building, TYPE_ROAD, BuildingType, BUILDING_TYPES } from './building.class';
-import { Region, compareRegions, TileCoords } from './definitions';
-
-// enum ORIENTATION {
-//   LONGITUDE = -1, // within a row
-//   LATITUDE = 1, // within a column
-// }
+import { Building, BuildingType, BUILDING_TYPES } from './building.class';
+import { Region, compareRegions, TileCoords, ORIENTATION, computeRegion, overlaps } from './definitions';
+import { encode, EXPORT_FORMAT_VERSION, TYPE_AND_COUNT, COORDS_AND_ORIENTATION, decode, TYPE_BUILDINGS_CHUNKSIZE } from './import-export';
 
 const EMPTY_BOUNDS: Region = { nw: { row: 0, col: 0 }, se: { row: -1, col: -1 } };
-
-class Tile {
-
-  public building: Building | null;
-  public link(building: Building): void {
-    this.building = building;
-  }
-
-  public unlink(): void {
-    this.building = null;
-  }
-
-}
 
 export class Grid {
 
@@ -34,22 +17,18 @@ export class Grid {
   public readonly boundsChanged$: Subject<Region> = new ReplaySubject();
   public readonly buildings: Set<Building> = new Set();
 
-  private tiles: Tile[][] = [];
-
   constructor() {
     this.resizeGrid();
-    require('./tmp/sample-grid.json').forEach(b => this.place(new Building(BUILDING_TYPES[BUILDING_TYPES.findIndex(({ id }) => id === b.type.id.toLowerCase())]), b.region));
   }
 
   public buildingAt(at: TileCoords): Building | null {
-    const internalAt = this.translateToInternalCoords(at);
-    return this.tiles[internalAt.row] && this.tiles[internalAt.row][internalAt.col] ?.building;
+    return this.buildingsIn({ nw: at, se: at }, []).values().next().value;
   }
 
   public buildingsIn(region: Region, ignore: BuildingType[], ignoreSpecific?: Building): Set<Building> {
-    return new Set(
-      this.tilesIn(region).map(({ building }) => building).filter(b => b && b !== ignoreSpecific && !ignore.includes(b.type)),
-    );
+    return new Set([...this.buildings]
+      .filter(b => b && b !== ignoreSpecific && !ignore.includes(b.type))
+      .filter(({ region: r }) => overlaps(region, r)));
   }
 
   /**
@@ -59,35 +38,77 @@ export class Grid {
    * @return        `true` if the region is building-free.
    */
   public isFree(region: Region, opts?: { road?: boolean, ignore?: Building }): boolean {
-    return this.buildingsIn(region, (opts ?.road ? [TYPE_ROAD] : []), opts ?.ignore).size === 0;
+    // TODO: add mechanism for road-ish types
+    return this.buildingsIn(region, (opts ?.road ? [/* here */] : []), opts ?.ignore).size === 0;
   }
 
-  public place(building: Building, region: Region): void {
-    if (this.isFree(region, { ignore: building })) {
-      if (building.region) {
-        this.tilesIn(building.region).forEach(t => t.unlink()); // mini-remove that preserves children
-      }
-
-      building.moveTo(region);
-      this.buildings.add(building);
-      this.tilesIn(building.region).forEach(t => t.link(building));
-      this.resizeGrid();
+  public place(type: BuildingType, at: TileCoords, orientation: ORIENTATION): void {
+    const region = computeRegion(type, at, orientation);
+    if (!this.isFree(region)) {
+      throw new Error(`Cannot place building of type ${type.name} at ${JSON.stringify(region, null, 2)}`);
     }
+
+    const building = new Building(type);
+    building.moveTo(region);
+    this.buildings.add(building);
+    this.resizeGrid();
+  }
+
+  public move(building: Building, at: TileCoords, orientation: ORIENTATION): void {
+    const region: Region = computeRegion(building.type, at, orientation);
+    if (!this.isFree(region, { ignore: building })) {
+      throw new Error(`Cannot place building of type ${building.type.name} at ${JSON.stringify(region, null, 2)}`);
+    }
+
+    building.moveTo(region);
+    this.buildings.add(building);
+    this.resizeGrid();
   }
 
   public remove(building: Building): void {
-    [...building.children, building].forEach(b => {
-      this.tilesIn(b.region).forEach(t => t.unlink());
-      this.buildings.delete(b);
-    });
-
+    [...building.children, building].forEach(b => this.buildings.delete(b));
     this.resizeGrid();
+  }
+
+  public getCode(this: Grid): string {
+    let res = encode(EXPORT_FORMAT_VERSION, 1);
+    Object.entries(this.buildingsByType())
+      .map(([type, buildings]) => ({ type: parseInt(type, 10), buildings }))
+      .forEach(({ type, buildings }) => {
+        while (buildings.length) {
+          res += TYPE_AND_COUNT.encode({ type, count: Math.min(buildings.length, TYPE_BUILDINGS_CHUNKSIZE) });
+          res += buildings.splice(0, TYPE_BUILDINGS_CHUNKSIZE)
+            .map(({ region: { nw }, orientation }) => COORDS_AND_ORIENTATION.encode({ ...this.normaliseCoords(nw), orientation })).join('');
+        }
+      });
+
+    return res;
+  }
+
+  public fromCode(code: string): void {
+    let s = code;
+    function consume(chars: number): string {
+      const res = s.slice(0, chars);
+      s = s.slice(chars);
+      return res;
+    }
+
+    if (decode(consume(1)) !== EXPORT_FORMAT_VERSION) {
+      throw new Error(`Can't decode code '${code}' with import/export v${EXPORT_FORMAT_VERSION}`);
+    }
+
+    this.buildings.clear();
+    while (s.length) {
+      const { type: id, count } = TYPE_AND_COUNT.decode(consume(2));
+      const type = BUILDING_TYPES.find(t => t.id === id);
+      Array.from({ length: count + 1 }, () => COORDS_AND_ORIENTATION.decode(consume(3)))
+        .forEach(({ col, row, orientation }) => this.place(type, { col, row }, orientation));
+    }
   }
 
   private resizeGrid(): void {
     if (!this.buildings.size) {
       this.boundsChanged$.next(this.bounds = EMPTY_BOUNDS);
-      this.tiles = [];
       return;
     }
 
@@ -100,81 +121,15 @@ export class Grid {
 
     if (!compareRegions(bounds, this.bounds)) {
       this.boundsChanged$.next(this.bounds = bounds);
-
-      // create new grid
-      this.tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => new Tile()));
-
-      // place buildings on new grid
-      this.buildings.forEach(b => this.tilesIn(b.region).forEach(t => t.link(b)));
     }
   }
-  //
-  // // Returns list of tiles w/ shortest path prioritising travel along a certain ORIENTATION, empty list if impossible
-  // public planRoad(from: TileCoords, to: TileCoords, orientation: ORIENTATION = ORIENTATION.LATITUDE): LocatedTile[] {
-  //   type T = { tile: Tile, at: TileCoords, beeline: number, prev?: T, dir?: ORIENTATION }; // `beeline` is distance from destination, as the crow flies
-  //
-  //   const tiles: T[][] = this.tiles
-  //     .map((r, row) => r.map((tile, col) => ({ tile, at: { row, col }, beeline: Math.abs(to.row - row) + Math.abs(to.col - col) })));
-  //
-  //   const { height, width } = this;
-  //   function getNeighbours(t: T): T[] {
-  //     return [
-  //       { row: t.at.row, col: t.at.col - 1, dir: ORIENTATION.LONGITUDE },
-  //       { row: t.at.row, col: t.at.col + 1, dir: ORIENTATION.LONGITUDE },
-  //       { row: t.at.row - 1, col: t.at.col, dir: ORIENTATION.LATITUDE },
-  //       { row: t.at.row + 1, col: t.at.col, dir: ORIENTATION.LATITUDE },
-  //     ]
-  //       .filter(v => v.row >= 0 && v.row < height && v.col >= 0 && v.col < width)
-  //       .map<[{ dir: ORIENTATION }, T]>(v => [v, tiles[v.row][v.col]])
-  //       .filter(([_, n]) => Grid.isRoadable(n.tile))
-  //       .filter(([_, n]) => !n.prev)
-  //       .map(([{ dir }, n]) => (n.dir = dir, n.prev = t, n)); // eslint-disable-line
-  //   }
-  //
-  //   const origin = tiles[from.row][from.col];
-  //   const nextShortest: T[] = [origin];
-  //   let cur: T;
-  //   do {
-  //     cur = nextShortest.pop();
-  //     nextShortest.push(...getNeighbours(cur));
-  //     nextShortest.sort(({ beeline: d1, dir: dir1 }, { beeline: d2, dir: dir2 }) => d2 - d1 || (dir1 - dir2) * orientation);
-  //   } while (nextShortest.length > 0 && cur.beeline > 0);
-  //
-  //   if (cur.beeline === 0) {
-  //     const res: LocatedTile[] = [];
-  //     while (cur !== origin) {
-  //       res.push(cur);
-  //       cur = cur.prev;
-  //     }
-  //
-  //     return res.concat(cur);
-  //   }
-  //
-  //   return [];
-  // }
-  //
-  // // Distinction between 'from' and 'to' matters, for the algorithm will prefer LATITUDE-first travelling
-  // public placeRoad(from: TileCoords, to: TileCoords): void {
-  //   const a = this.planRoad(from, to, ORIENTATION.LATITUDE);
-  //   const b = this.planRoad(from, to, ORIENTATION.LONGITUDE);
-  //   (b.length < a.length ? b : a)
-  //     .filter(({ tile: { building } }) => !building)
-  //     .forEach(({ at }) => this.place(new Building(TYPE_ROAD, BUILDING_ROAD), { nw: at, se: at }));
-  // }
 
-  private translateToInternalCoords({ col, row }: TileCoords): TileCoords {
+  private normaliseCoords({ col, row }: TileCoords): TileCoords {
     return { col: col - this.bounds.nw.col, row: row - this.bounds.nw.row };
   }
 
-  private translateToInternal({ nw, se }: Region): Region {
-    return { nw: this.translateToInternalCoords(nw), se: this.translateToInternalCoords(se) };
-  }
-
-  private tilesIn(region: Region): Tile[] {
-    const { nw, se } = this.translateToInternal(region);
-    return [].concat(...this.tiles
-      .filter((_, r) => r >= nw.row && r <= se.row)
-      .map((row => row.filter((_, c) => c >= nw.col && c <= se.col))));
+  private buildingsByType(): Record<number, Building[]> {
+    return [...this.buildings].reduce((acc, b) => ({ ...acc, [b.type.id]: (acc[b.type.id] || []).concat(b) }), {});
   }
 
 }
