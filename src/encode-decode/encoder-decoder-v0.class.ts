@@ -1,4 +1,5 @@
-import { Building, typeFor } from 'src/designer-engine/building.class';
+import { Building } from 'src/buildings/building.class';
+import { typeFor } from 'src/buildings/definitions';
 import { TileCoords, ORIENTATION } from 'src/designer-engine/definitions';
 import { encode, decode } from 'src/utils/base62';
 

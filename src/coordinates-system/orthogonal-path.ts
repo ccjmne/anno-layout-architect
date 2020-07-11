@@ -1,5 +1,5 @@
+import { OrthogonalShape } from 'src/buildings/orthogonal-building.class';
 import { TileCoords, compareTileCoords } from 'src/designer-engine/definitions';
-import { OrthogonalShape } from 'src/designer-engine/orthogonal-building.class';
 
 enum Edge { TOP, BOTTOM, LEFT, RIGHT }
 

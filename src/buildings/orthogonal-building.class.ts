@@ -1,7 +1,9 @@
 import { OrthogonalPath } from 'src/coordinates-system/orthogonal-path';
 
-import { Building, BuildingType } from './building.class';
-import { Region } from './definitions';
+import { Region } from 'src/designer-engine/definitions';
+
+import { Building } from './building.class';
+import { BuildingType } from './definitions';
 
 export class OrthogonalShape {
 

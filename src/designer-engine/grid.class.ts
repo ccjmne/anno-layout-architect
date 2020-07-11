@@ -1,8 +1,9 @@
 import { ReplaySubject, Subject } from 'rxjs';
 
+import { Building } from 'src/buildings/building.class';
+import { BuildingType } from 'src/buildings/definitions';
 import { ENCODER_DECODER_V0 } from 'src/encode-decode/encoder-decoder-v0.class';
 
-import { Building, BuildingType } from './building.class';
 import { Region, compareRegions, TileCoords, ORIENTATION, computeRegion, overlaps } from './definitions';
 
 const EMPTY_BOUNDS: Region = { nw: { row: 0, col: 0 }, se: { row: -1, col: -1 } };

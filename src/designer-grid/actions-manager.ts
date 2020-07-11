@@ -7,8 +7,9 @@ import { filter } from 'rxjs/internal/operators/filter';
 import { map } from 'rxjs/internal/operators/map';
 import { tap } from 'rxjs/internal/operators/tap';
 
+import { Building } from 'src/buildings/building.class';
+import { BUILDING_TYPES, BuildingType, rotate } from 'src/buildings/definitions';
 import { Point } from 'src/coordinates-system/definitions';
-import { Building, BuildingType, rotate, BUILDING_TYPES } from 'src/designer-engine/building.class';
 import { Region, compareRegions, ORIENTATION } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
 import { not, exists } from 'src/utils/nullable';

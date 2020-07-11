@@ -1,6 +1,5 @@
+import { BuildingType } from 'src/buildings/definitions';
 import { not, exists } from 'src/utils/nullable';
-
-import { BuildingType } from './building.class';
 
 export type TileCoords = { row: number; col: number; }
 export type Region = { nw: TileCoords; se: TileCoords; }
