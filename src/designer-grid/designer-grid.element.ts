@@ -13,6 +13,7 @@ import { map } from 'rxjs/internal/operators/map';
 import { startWith } from 'rxjs/internal/operators/startWith';
 import { tap, mapTo } from 'rxjs/operators';
 
+import { Geometrised } from 'src/coordinates-system/definitions';
 import { Building, BUILDING_TYPES, BuildingType } from 'src/designer-engine/building.class';
 import { TileCoords, compareTileCoords } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
@@ -22,7 +23,7 @@ import { mod } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION, crispEdgeAfter } from 'src/utils/transitions';
 
 import { ActionsManager, ActionValidity, Action, ActionType } from './actions-manager';
-import { Geometrised, CoordinatesSystem } from './coordinates-system';
+import { CoordinatesSystem } from '../coordinates-system/coordinates-system';
 
 function pathTo(icon: string) {
   return resolve(__dirname, 'assets/anno-designer-presets/icons', icon);

@@ -7,12 +7,13 @@ import { filter } from 'rxjs/internal/operators/filter';
 import { map } from 'rxjs/internal/operators/map';
 import { tap } from 'rxjs/internal/operators/tap';
 
+import { Point } from 'src/coordinates-system/definitions';
 import { Building, BuildingType, rotate, BUILDING_TYPES } from 'src/designer-engine/building.class';
 import { Region, compareRegions, ORIENTATION } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
 import { not, exists } from 'src/utils/nullable';
 
-import { CoordinatesSystem, LocalCoords } from './coordinates-system';
+import { CoordinatesSystem } from '../coordinates-system/coordinates-system';
 
 export enum ActionValidity { VALID, INVALID, UNAVAILABLE }
 export enum ActionType { // string values are referenced in css
@@ -57,10 +58,10 @@ export class ActionsManager {
 
   // Cursor Observables
   private readonly revalidate$: Subject<null> = new Subject();
-  private readonly mousemove$: Subject<LocalCoords> = new Subject();
-  private readonly click$: Subject<LocalCoords> = new Subject();
-  private readonly rightclick$: Subject<LocalCoords> = new Subject();
-  private readonly dragstart$: Subject<LocalCoords> = new Subject();
+  private readonly mousemove$: Subject<Point> = new Subject();
+  private readonly click$: Subject<Point> = new Subject();
+  private readonly rightclick$: Subject<Point> = new Subject();
+  private readonly dragstart$: Subject<Point> = new Subject();
 
   constructor(coords: CoordinatesSystem, grid: Grid) {
     this.coords = coords;
@@ -116,19 +117,19 @@ export class ActionsManager {
     this.changeMode(ActionType.BUILD);
   }
 
-  public mousemove(xy: LocalCoords): void {
+  public mousemove(xy: Point): void {
     this.mousemove$.next(xy);
   }
 
-  public click(xy: LocalCoords): void {
+  public click(xy: Point): void {
     this.click$.next(xy);
   }
 
-  public rightclick(xy: LocalCoords): void {
+  public rightclick(xy: Point): void {
     this.rightclick$.next(xy);
   }
 
-  public dragstart(xy: LocalCoords): void {
+  public dragstart(xy: Point): void {
     this.dragstart$.next(xy);
   }
 
@@ -136,7 +137,7 @@ export class ActionsManager {
     this.mode$.next(this.mode = mode);
   }
 
-  private validateAction(xy: LocalCoords): Action {
+  private validateAction(xy: Point): Action {
     if (this.mode === ActionType.BUILD) {
       const region = this.coords.snapToGrid(xy, rotate(this.BUILD.type, this.BUILD.orientation));
 

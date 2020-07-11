@@ -3,7 +3,7 @@ import { Selection, select } from 'd3-selection';
 import 'd3-transition'; // eslint-disable-line import/no-duplicates
 import { Transition } from 'd3-transition'; // eslint-disable-line import/no-duplicates
 
-import { Geometrised } from 'src/designer-grid/coordinates-system';
+import { Geometrised } from 'src/coordinates-system/definitions';
 
 import { randomInt } from './maths';
 

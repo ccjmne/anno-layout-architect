@@ -12,24 +12,12 @@ import { startWith } from 'rxjs/internal/operators/startWith';
 import { switchMap } from 'rxjs/internal/operators/switchMap';
 import { tap } from 'rxjs/internal/operators/tap';
 
+import { Geometry, Point, computeGeometry } from 'src/coordinates-system/definitions';
 import { Region, TileCoords } from 'src/designer-engine/definitions';
 import { mod } from 'src/utils/maths';
 
 const DEBOUNCE_ACTIVITY = 1000;
 const TILES_PADDING = 10;
-
-export type LocalCoords = { x: number, y: number };
-export type Geometrised<Datum> = Datum & { geo: Geometry };
-export type Geometry = {
-  x: [number, number],
-  y: [number, number],
-  w: number,
-  h: number,
-  cols: number,
-  rows: number,
-  cx: number,
-  cy: number
-};
 
 export class CoordinatesSystem {
 
@@ -87,31 +75,20 @@ export class CoordinatesSystem {
     ).subscribe(this.systemUpdate$ = new ReplaySubject(1));
   }
 
-  public toTileCoords({ x, y }: LocalCoords): TileCoords {
+  public toTileCoords({ x, y }: Point): TileCoords {
     return { row: Math.floor(y / this.tileSide), col: Math.floor(x / this.tileSide) };
   }
 
-  public toLocalCoords({ offsetX, offsetY }: MouseEvent): LocalCoords {
+  public toLocalCoords({ offsetX, offsetY }: MouseEvent): Point {
     return { x: this.localOffset.x + offsetX, y: this.localOffset.y + offsetY };
   }
 
-  public computeGeometry({ nw, se }: Region): Geometry {
-    const cols = se.col - nw.col + 1;
-    const rows = se.row - nw.row + 1;
-    return {
-      x: [nw.col * this.tileSide, (se.col + 1) * this.tileSide],
-      y: [nw.row * this.tileSide, (se.row + 1) * this.tileSide],
-      w: cols * this.tileSide,
-      h: rows * this.tileSide,
-      cols,
-      rows,
-      cy: (se.row + nw.row + 1) * (this.tileSide / 2),
-      cx: (se.col + nw.col + 1) * (this.tileSide / 2),
-    };
+  public computeGeometry(region: Region): Geometry {
+    return computeGeometry(region, this.tileSide);
   }
 
-  public snapToGrid({ x, y }: LocalCoords, { w, h }: { w: number, h: number }): Region {
-    const idealNW: LocalCoords = { x: x - (w / 2) * this.tileSide, y: y - (h / 2) * this.tileSide };
+  public snapToGrid({ x, y }: Point, { w, h }: { w: number, h: number }): Region {
+    const idealNW: Point = { x: x - (w / 2) * this.tileSide, y: y - (h / 2) * this.tileSide };
     const { col, row }: TileCoords = {
       col: Math.floor(idealNW.x / this.tileSide) + +(mod(idealNW.x, this.tileSide) > this.tileSide / 2),
       row: Math.floor(idealNW.y / this.tileSide) + +(mod(idealNW.y, this.tileSide) > this.tileSide / 2),
