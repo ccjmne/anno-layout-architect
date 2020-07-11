@@ -43,6 +43,7 @@ module.exports = {
       ignoreTemplateLiterals: true,
       ignoreRegExpLiterals: true,
     }],
+    'no-return-assign': ['error', 'except-parens'],
     'no-underscore-dangle': 'error',
     'no-unused-vars': 'off', // broken w/ TypeScript, see https://stackoverflow.com/questions/57802057/eslint-configuring-no-unused-vars-for-typescript
     'object-curly-newline': ['error', {
