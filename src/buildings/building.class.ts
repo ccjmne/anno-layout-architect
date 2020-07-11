@@ -6,7 +6,8 @@ export class Building {
 
   private static SEQ: number = 0;
 
-  public readonly id: number; // TODO: maybe can't be deleted, 'cause it'll be used in later versions of EncoderDecoder
+  // Can't be deleted: used to uniquely identify buildings in D3 selections...
+  public readonly id: number;
 
   public type!: BuildingType;
   public orientation: ORIENTATION;

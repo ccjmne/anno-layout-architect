@@ -15,6 +15,8 @@ import { tap, mapTo } from 'rxjs/operators';
 
 import { Building } from 'src/buildings/building.class';
 import { BuildingType, BUILDING_TYPES } from 'src/buildings/definitions';
+import { OrthogonalBuilding } from 'src/buildings/orthogonal-building.class';
+import { CoordinatesSystem } from 'src/coordinates-system/coordinates-system';
 import { Geometrised } from 'src/coordinates-system/definitions';
 import { TileCoords, compareTileCoords } from 'src/designer-engine/definitions';
 import { Grid } from 'src/designer-engine/grid.class';
@@ -22,8 +24,6 @@ import { randomTemplate } from 'src/designer-engine/templates';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
 import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION, crispEdgeAfter } from 'src/utils/transitions';
-
-import { CoordinatesSystem } from '../coordinates-system/coordinates-system';
 
 import { ActionsManager, ActionValidity, Action, ActionType } from './actions-manager';
 
@@ -48,6 +48,7 @@ class DesignerGrid extends HTMLElement {
   private center: Selection<SVGGElement, unknown, null, undefined>;
   private zerozero: Selection<SVGGElement, unknown, null, undefined>;
   private svg: Selection<SVGSVGElement, unknown, null, undefined>;
+  private orthobuildings: Selection<SVGGElement, Geometrised<OrthogonalBuilding>, null, undefined>;
   private buildings: Selection<SVGGElement, Geometrised<Building>, null, undefined>;
   private outline: Selection<SVGGElement, Geometrised<unknown>, null, undefined>;
   private secondary: Selection<SVGGElement, Geometrised<unknown>, null, undefined>;
@@ -141,6 +142,7 @@ class DesignerGrid extends HTMLElement {
       left: this.zerozero.append('g').attr('class', 'axis left'),
     };
 
+    this.orthobuildings = this.zerozero.append('g').attr('class', 'orthogonal buildings') as Selection<SVGGElement, Geometrised<OrthogonalBuilding>, any, any>;
     this.buildings = this.zerozero.append('g').attr('class', 'buildings') as Selection<SVGGElement, Geometrised<Building>, any, any>;
     this.secondary = this.zerozero.append<SVGGElement>('g').datum(null as Geometrised<unknown>).attr('class', 'outline');
     this.secondary.append('path').attr('class', 'secondary-outline');
@@ -322,7 +324,33 @@ class DesignerGrid extends HTMLElement {
       return { w, h };
     }
 
-    this.buildings.selectAll<SVGRectElement, Building>('g')
+    this.orthobuildings.selectAll<SVGGElement, Geometrised<OrthogonalBuilding>>('g')
+      .data(
+        [...this.grid.orthogonalBuildings].map(b => Object.assign(b, { geo: this.coords.computeOrthogonalGeometry(b.region, b.path) })),
+        d => String(d.id),
+      ).join(enter => {
+        const g = enter.append('g')
+          .attr('transform', ({ geo: { x: [x0], y: [y0] } }) => `translate(${x0} ${y0})`);
+        g.append('path')
+          .attr('d', ({ geo: { d } }) => d)
+          .style('fill', ({ type: { colour } }) => colour)
+          .style('stroke', ({ type: { colour } }) => color(colour).darker(2).hex());
+
+        return g;
+      },
+      update => {
+        update
+          .each(b => Object.assign(b, { geo: this.coords.computeOrthogonalGeometry(b.region, b.path) })).call(u => {
+            crispEdgeAfter(transition(u, duration))
+              .attr('transform', ({ geo: { x: [x0], y: [y0] } }) => `translate(${x0} ${y0})`);
+            transition(u.select<SVGPathElement>('path'), duration)
+              .attr('d', ({ geo: { d } }) => d);
+          });
+
+        return update;
+      }, exit => exitTransition(exit));
+
+    this.buildings.selectAll<SVGGElement, Building>('g')
       .data(
         [...this.grid.buildings].map(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })),
         d => String(d.id),

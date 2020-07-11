@@ -12,9 +12,11 @@ import { startWith } from 'rxjs/internal/operators/startWith';
 import { switchMap } from 'rxjs/internal/operators/switchMap';
 import { tap } from 'rxjs/internal/operators/tap';
 
-import { Geometry, Point, computeGeometry } from 'src/coordinates-system/definitions';
+import { OrthogonalPath } from 'src/coordinates-system/orthogonal-path';
 import { Region, TileCoords } from 'src/designer-engine/definitions';
 import { mod } from 'src/utils/maths';
+
+import { computeGeometry, Geometry, Point } from './definitions';
 
 const DEBOUNCE_ACTIVITY = 1000;
 const TILES_PADDING = 10;
@@ -43,7 +45,7 @@ export class CoordinatesSystem {
     ).subscribe(this.propagateUpdate$ = new ReplaySubject(1));
 
     combineLatest([
-      this.containerSize$,
+      this.containerSize$.pipe(debounceTime(50)),
       this.gridBounds$.pipe(switchMap(data => this.propagateUpdate$.pipe(filter(busy => !busy), first(), mapTo(data)))),
     ]).pipe(
       tap(([{ offsetWidth, offsetHeight }, bounds]) => {
@@ -85,6 +87,10 @@ export class CoordinatesSystem {
 
   public computeGeometry(region: Region): Geometry {
     return computeGeometry(region, this.tileSide);
+  }
+
+  public computeOrthogonalGeometry(region: Region, path: OrthogonalPath): Geometry {
+    return { ...this.computeGeometry(region), d: path.compute(this.tileSide) };
   }
 
   public snapToGrid({ x, y }: Point, { w, h }: { w: number, h: number }): Region {

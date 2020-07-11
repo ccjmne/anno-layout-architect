@@ -1,7 +1,8 @@
 import { ReplaySubject, Subject } from 'rxjs';
 
 import { Building } from 'src/buildings/building.class';
-import { BuildingType } from 'src/buildings/definitions';
+import { BuildingType, BUILDING_TYPES } from 'src/buildings/definitions';
+import { OrthogonalBuilding, OrthogonalShape } from 'src/buildings/orthogonal-building.class';
 import { ENCODER_DECODER_V0 } from 'src/encode-decode/encoder-decoder-v0.class';
 
 import { Region, compareRegions, TileCoords, ORIENTATION, computeRegion, overlaps } from './definitions';
@@ -18,8 +19,54 @@ export class Grid {
   public get height(): number { return this.bounds.se.row - this.bounds.nw.row + 1; }
   public readonly boundsChanged$: Subject<Region> = new ReplaySubject();
   public readonly buildings: Set<Building> = new Set();
+  public readonly orthogonalBuildings: Set<OrthogonalBuilding> = new Set();
 
   constructor() {
+    this.fromCode('04c0fM004500fI0001j0GX');
+    this.placeOrthogonal(BUILDING_TYPES.find(b => /potato field/i.test(b.name)), { nw: { col: -2, row: -4 }, se: { col: 6, row: 9 } }, new OrthogonalShape(`
+      111111111
+      111111111
+      11111111.
+      11111111.
+      11.......
+      11.......
+      11.......
+      11.......
+      11.......
+      11.......
+      11.......
+      11111111.
+      11111111.
+      11111111.
+    `.trim().split('\n').map(row => row.trim().split('').map(char => char === '1'))));
+    this.placeOrthogonal(BUILDING_TYPES.find(b => /potato field/i.test(b.name)), { nw: { col: 6, row: -4 }, se: { col: 14, row: 9 } }, new OrthogonalShape(`
+      .11111111
+      .11111111
+      111111111
+      111111111
+      .......11
+      .......11
+      .......11
+      .......11
+      .......11
+      .......11
+      .......11
+      .11111111
+      .11111111
+      .11111111
+    `.trim().split('\n').map(row => row.trim().split('').map(char => char === '1'))));
+    this.placeOrthogonal(BUILDING_TYPES.find(b => /mine/i.test(b.name)), { nw: { col: 3, row: 0 }, se: { col: 9, row: 9 } }, new OrthogonalShape(`
+      1111111
+      1000001
+      1000001
+      1000001
+      1000001
+      1000001
+      1111111
+      0001000
+      0001000
+      0001000
+    `.trim().split('\n').map(row => row.trim().split('').map(char => char === '1'))));
     this.resizeGrid();
   }
 
@@ -42,6 +89,12 @@ export class Grid {
   public isFree(region: Region, opts?: { road?: boolean, ignore?: Building }): boolean {
     // TODO: add mechanism for road-ish types
     return this.buildingsIn(region, (opts ?.road ? [/* here */] : []), opts ?.ignore).size === 0;
+  }
+
+  public placeOrthogonal(type: BuildingType, region: Region, shape: OrthogonalShape, parent?: Building): void {
+    // TODO: check if grid is free
+    this.orthogonalBuildings.add(new OrthogonalBuilding(type, region, shape, parent));
+    this.resizeGrid();
   }
 
   public place(type: BuildingType, at: TileCoords, orientation: ORIENTATION): void {
@@ -77,17 +130,18 @@ export class Grid {
 
   public fromCode(code: string): void {
     this.buildings.clear();
+    this.orthogonalBuildings.clear();
     // TODO: this may trigger lots of redraws; just bulk-add buildings rather
     ENCODER_DECODER_V0.decode(code).forEach(({ type, at, orientation }) => this.place(type, at, orientation));
   }
 
   private resizeGrid(): void {
-    if (!this.buildings.size) {
+    if (!this.buildings.size && !this.orthogonalBuildings.size) {
       this.boundsChanged$.next(this.bounds = EMPTY_BOUNDS);
       return;
     }
 
-    const bounds = [...this.buildings.values()].reduce((
+    const bounds = [...this.buildings.values(), ...this.orthogonalBuildings.values()].reduce((
       { nw: { col: nwX1, row: nwY1 }, se: { col: seX1, row: seY1 } },
       { region: { nw: { col: nwX2, row: nwY2 }, se: { col: seX2, row: seY2 } } },
     ) => ({
