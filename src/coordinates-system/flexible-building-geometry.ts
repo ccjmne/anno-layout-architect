@@ -47,23 +47,20 @@ class Edges {
 export class FlexibleBuildingPath {
 
   private readonly grid: Edges[][];
-  private readonly tileSide: number;
 
-  private d: string;
+  private d: string = '';
 
   // buffer commands of the same kind
   private last: string;
   private buffer: number = 0;
 
-  constructor(shape: FlexibleBuildingShape, tileSide: number) {
+  constructor(shape: FlexibleBuildingShape) {
     this.grid = shape.grid.map((r, row) => r.map((_, col) => new Edges({ row, col }, shape)));
-    this.tileSide = tileSide;
+    this.grid.map((r, row) => r.map((_, col) => this.findSegment({ row, col })).join('')).join('');
   }
 
-  public compute(): string {
-    this.clear();
-    this.grid.map((r, row) => r.map((_, col) => this.findSegment({ row, col })).join('')).join('');
-    return this.d;
+  public compute(tileSide: number): string {
+    return this.d.replace(/-?\d+/g, len => String(parseInt(len, 10) * tileSide));
   }
 
   private findSegment(start: TileCoords): void {
@@ -106,26 +103,22 @@ export class FlexibleBuildingPath {
 
     switch (edge) {
       case Edge.TOP:
-        this.bufferCommand('h', this.tileSide);
+        this.bufferCommand('h', 1);
         break;
       case Edge.BOTTOM:
-        this.bufferCommand('h', -this.tileSide);
+        this.bufferCommand('h', -1);
         break;
       case Edge.LEFT:
-        this.bufferCommand('v', -this.tileSide);
+        this.bufferCommand('v', -1);
         break;
       case Edge.RIGHT:
-        this.bufferCommand('v', this.tileSide);
+        this.bufferCommand('v', 1);
         break;
       default: // can't happen
     }
 
     tile.remove(edge); // remove edges drawn
     return true;
-  }
-
-  private clear() {
-    this.d = '';
   }
 
   private bufferCommand(cmd: string, value: number): void {
@@ -145,7 +138,7 @@ export class FlexibleBuildingPath {
   private beginSegment({ row, col }: TileCoords): void {
     this.last = null;
     this.buffer = 0;
-    this.d += `M${col * this.tileSide},${row * this.tileSide}`;
+    this.d += `M${col},${row}`;
   }
 
   private completeSegment(): void {
