@@ -1,5 +1,5 @@
 import { TileCoords, compareTileCoords } from 'src/designer-engine/definitions';
-import { FlexibleBuildingShape } from 'src/designer-engine/flexible-building.class';
+import { OrthogonalShape } from 'src/designer-engine/orthogonal-building.class';
 
 enum Edge { TOP, BOTTOM, LEFT, RIGHT }
 
@@ -25,7 +25,7 @@ class Edges {
   public [Edge.LEFT]: boolean;
   public [Edge.RIGHT]: boolean;
 
-  constructor({ col, row }: TileCoords, { grid, cols, rows }: FlexibleBuildingShape) {
+  constructor({ col, row }: TileCoords, { grid, cols, rows }: OrthogonalShape) {
     if (grid[row][col] === false) {
       return;
     }
@@ -44,7 +44,7 @@ class Edges {
 
 }
 
-export class FlexibleBuildingPath {
+export class OrthogonalPath {
 
   private readonly grid: Edges[][];
 
@@ -54,7 +54,7 @@ export class FlexibleBuildingPath {
   private last: string;
   private buffer: number = 0;
 
-  constructor(shape: FlexibleBuildingShape) {
+  constructor(shape: OrthogonalShape) {
     this.grid = shape.grid.map((r, row) => r.map((_, col) => new Edges({ row, col }, shape)));
     this.grid.map((r, row) => r.map((_, col) => this.findSegment({ row, col })).join('')).join('');
   }
