@@ -1,6 +1,6 @@
 @keyframes breathe {
   0% {
-    stroke-width: 2cpx;
+    stroke-width: 2px;
   }
 
   100% {
@@ -46,6 +46,17 @@ main {
 
 svg {
   .axis {
+    &.bottom,
+    &.left,
+    &.right,
+    &.top {
+      color: $bg-darkest;
+
+      path {
+        display: none;
+      }
+    }
+
     &.cols,
     &.rows {
       color: $bg-dark;
@@ -54,12 +65,17 @@ svg {
 
   .highlight {
     fill: $bg-dark;
+    shape-rendering: crispEdges;
   }
 
   .buildings {
+    path,
     rect {
       transition: fill 100ms ease-out;
       stroke-width: 2;
+    }
+
+    &.flexible path {
       fill-opacity: .5;
     }
   }
@@ -98,7 +114,6 @@ svg {
 
     rect.region-outline {
       animation: breathe $duration-slow alternate infinite ease-in-out;
-      stroke-width: 2px;
       stroke: var(--colour);
       fill: var(--colour);
       fill-opacity: 0;

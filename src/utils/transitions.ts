@@ -1,6 +1,7 @@
 import { easeExpOut, easeLinear } from 'd3-ease';
 import { Selection, select } from 'd3-selection';
-import 'd3-transition';
+import 'd3-transition'; // eslint-disable-line import/no-duplicates
+import { Transition } from 'd3-transition'; // eslint-disable-line import/no-duplicates
 
 import { Geometrised } from 'src/designer-grid/coordinates-system';
 
@@ -10,6 +11,12 @@ export enum DURATION {
   SNAP = 75,
   REGULAR = 150,
   SLOW = 500,
+}
+
+export function crispEdgeAfter<E extends SVGElement>(t: Transition<E, any, any, any>): Transition<E, any, any, any> {
+  t.nodes().forEach(n => n.style.setProperty('shape-rendering', 'geometricPrecision'));
+  t.end().then(() => t.nodes().forEach(n => n.style.setProperty('shape-rendering', 'crispEdges')), () => { } /* discard rejections */);
+  return t;
 }
 
 export function opacityTransition<E extends SVGElement, Datum>(

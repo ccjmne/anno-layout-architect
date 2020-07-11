@@ -19,7 +19,7 @@ import { Grid } from 'src/designer-engine/grid.class';
 import { randomTemplate } from 'src/designer-engine/templates';
 import { untilDisconnected } from 'src/utils/customelement-disconnected';
 import { mod } from 'src/utils/maths';
-import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION } from 'src/utils/transitions';
+import { snapTransition, opacityTransition, slowTransition, errorTransition, exitTransition, successTransition, transition, DURATION, crispEdgeAfter } from 'src/utils/transitions';
 
 import { ActionsManager, ActionValidity, Action, ActionType } from './actions-manager';
 import { Geometrised, CoordinatesSystem } from './coordinates-system';
@@ -323,8 +323,7 @@ class DesignerGrid extends HTMLElement {
       .data(
         [...this.grid.buildings].map(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })),
         d => String(d.id),
-      )
-      .join(
+      ).join(
         enter => {
           const g = enter.append('g')
             .attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
@@ -335,7 +334,6 @@ class DesignerGrid extends HTMLElement {
             .attr('height', ({ geo: { h } }) => h)
             .style('fill', ({ type: { colour } }) => colour)
             .style('stroke', ({ type: { colour } }) => color(colour).darker(2).hex());
-
           g.append('image').datum(b => ({ ...b, img: measureImage(b.type.icon) }))
             .attr('xlink:href', ({ type: { icon } }) => pathTo(icon))
             .attr('x', ({ geo, img }) => -fit(img, geo).w / 2)
@@ -346,9 +344,9 @@ class DesignerGrid extends HTMLElement {
           return g;
         },
         update => {
-          update.each(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) }))
-            .call(u => {
-              transition(u, duration)
+          update
+            .each(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })).call(u => {
+              crispEdgeAfter(transition(u, duration))
                 .attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
               transition(u.select<SVGRectElement>('rect'), duration)
                 .attr('x', ({ geo: { w } }) => -w / 2)
@@ -370,13 +368,13 @@ class DesignerGrid extends HTMLElement {
 
   private redrawBackground(): void {
     const { x, y, w, h } = this.coords.background;
-    slowTransition(this.axes.rows)
+    crispEdgeAfter(slowTransition(this.axes.rows))
       .attr('transform', `translate(${x[0]}, 0)`)
       .call(axisRight(scaleLinear().domain(y.map(d => d / this.coords.tileSide)).range(y)).ticks(h / this.coords.tileSide).tickSize(w));
     this.axes.rows.selectAll<SVGLineElement, number>('g.tick line')
       .style('stroke-width', d => (mod(d, SUBDIVISION_SIZE) ? 1 : 2));
 
-    slowTransition(this.axes.cols)
+    crispEdgeAfter(slowTransition(this.axes.cols))
       .attr('transform', `translate(0, ${y[0]})`)
       .call(axisBottom(scaleLinear().domain(x.map(d => d / this.coords.tileSide)).range(x)).ticks(w / this.coords.tileSide).tickSize(h));
     this.axes.cols.selectAll<SVGLineElement, number>('g.tick line')
