@@ -330,11 +330,9 @@ class DesignerGrid extends HTMLElement {
         enter => {
           const g = enter.append('g')
             .attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
-          g.append('rect')
-            .attr('x', ({ geo: { w } }) => -w / 2)
-            .attr('y', ({ geo: { h } }) => -h / 2)
-            .attr('width', ({ geo: { w } }) => w)
-            .attr('height', ({ geo: { h } }) => h)
+          g.append('path')
+            .attr('transform', ({ geo: { w, h } }) => `translate(${-w / 2} ${-h / 2})`)
+            .attr('d', ({ geo: { d } }) => d)
             .style('fill', ({ type: { colour } }) => colour)
             .style('stroke', ({ type: { colour } }) => color(colour).darker(2).hex());
           g.append('image').datum(b => ({ ...b, img: measureImage(b.type.icon) }))
@@ -351,11 +349,9 @@ class DesignerGrid extends HTMLElement {
             .each(b => Object.assign(b, { geo: this.coords.computeGeometry(b.region) })).call(u => {
               crispEdgeAfter(transition(u, duration))
                 .attr('transform', ({ geo: { cx, cy } }) => `translate(${cx} ${cy})`);
-              transition(u.select<SVGRectElement>('rect'), duration)
-                .attr('x', ({ geo: { w } }) => -w / 2)
-                .attr('y', ({ geo: { h } }) => -h / 2)
-                .attr('width', ({ geo: { w } }) => w)
-                .attr('height', ({ geo: { h } }) => h);
+              transition(u.select<SVGRectElement>('path'), duration)
+                .attr('transform', ({ geo: { w, h } }) => `translate(${-w / 2} ${-h / 2})`)
+                .attr('d', ({ geo: { d } }) => d);
               transition(u.select<SVGImageElement>('image').datum(b => ({ ...b, img: measureImage(b.type.icon) })), duration)
                 .attr('x', ({ geo, img }) => -fit(img, geo).w / 2)
                 .attr('y', ({ geo, img }) => -fit(img, geo).h / 2)
